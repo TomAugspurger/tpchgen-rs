@@ -1,5 +1,11 @@
 # tpchgen-rs
 
+---
+
+*Note, this is a fork of https://github.com/clflushopt/tpchgen-rs. See [scripts/README.md](scripts/README.md) for a list of differences.*
+
+---
+
 [![Apache licensed][license-badge]][license-url]
 [![Build Status][actions-badge]][actions-url]
 
