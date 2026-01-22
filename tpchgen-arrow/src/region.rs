@@ -1,7 +1,7 @@
-use crate::{DEFAULT_BATCH_SIZE, RecordBatchIterator};
-use arrow::array::{Int64Array, RecordBatch, StringViewArray};
+use crate::{ColumnTypeConfig, DEFAULT_BATCH_SIZE, KeyColumnType, RecordBatchIterator};
+use arrow::array::{ArrayRef, Int32Array, Int64Array, RecordBatch, StringViewArray};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tpchgen::generators::{RegionGenerator, RegionGeneratorIterator};
 
 /// Generate  [`Region`]s in [`RecordBatch`] format
@@ -39,13 +39,20 @@ use tpchgen::generators::{RegionGenerator, RegionGeneratorIterator};
 pub struct RegionArrow {
     inner: RegionGeneratorIterator<'static>,
     batch_size: usize,
+    column_type_config: ColumnTypeConfig,
+    /// Cached schema based on column_type_config
+    schema: SchemaRef,
 }
 
 impl RegionArrow {
     pub fn new(generator: RegionGenerator<'static>) -> Self {
+        let column_type_config = ColumnTypeConfig::default();
+        let schema = make_region_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
+            column_type_config,
+            schema,
         }
     }
 
@@ -58,7 +65,18 @@ impl RegionArrow {
 
 impl RecordBatchIterator for RegionArrow {
     fn schema(&self) -> &SchemaRef {
-        &REGION_SCHEMA
+        &self.schema
+    }
+
+    fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
+
+    fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        self.schema = make_region_schema(&config);
+        self.column_type_config = config;
+        self
     }
 }
 
@@ -72,24 +90,36 @@ impl Iterator for RegionArrow {
             return None;
         }
 
-        let r_regionkey = Int64Array::from_iter_values(rows.iter().map(|r| r.r_regionkey));
+        // Build r_regionkey based on config
+        let r_regionkey: ArrayRef = match self.column_type_config.regionkey_type {
+            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(
+                rows.iter().map(|r| r.r_regionkey as i32),
+            )),
+            KeyColumnType::I64 => Arc::new(Int64Array::from_iter_values(
+                rows.iter().map(|r| r.r_regionkey as i64),
+            )),
+        };
+
         let r_name = StringViewArray::from_iter_values(rows.iter().map(|r| r.r_name));
         let r_comment = StringViewArray::from_iter_values(rows.iter().map(|r| r.r_comment));
 
         let batch = RecordBatch::try_new(
             Arc::clone(self.schema()),
-            vec![Arc::new(r_regionkey), Arc::new(r_name), Arc::new(r_comment)],
+            vec![r_regionkey, Arc::new(r_name), Arc::new(r_comment)],
         )
         .unwrap();
         Some(batch)
     }
 }
 
-/// Schema for the Region
-static REGION_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(make_region_schema);
-fn make_region_schema() -> SchemaRef {
+fn make_region_schema(config: &ColumnTypeConfig) -> SchemaRef {
+    let regionkey_type = match config.regionkey_type {
+        KeyColumnType::I32 => DataType::Int32,
+        KeyColumnType::I64 => DataType::Int64,
+    };
+
     Arc::new(Schema::new(vec![
-        Field::new("r_regionkey", DataType::Int64, false),
+        Field::new("r_regionkey", regionkey_type, false),
         Field::new("r_name", DataType::Utf8View, false),
         Field::new("r_comment", DataType::Utf8View, false),
     ]))

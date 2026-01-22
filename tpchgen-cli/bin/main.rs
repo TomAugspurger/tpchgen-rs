@@ -13,6 +13,7 @@ use log::{info, LevelFilter};
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
+use tpchgen_arrow::{ColumnTypeConfig, DateColumnType, DecimalColumnType, KeyColumnType};
 use tpchgen_cli::{
     Compression, OutputFormat, Table, TpchGenerator, DEFAULT_PARQUET_ROW_GROUP_BYTES,
 };
@@ -135,6 +136,39 @@ struct Cli {
     /// Common delimiters: ',' (comma), '|' (pipe), '\t' (tab), ';' (semicolon)
     #[arg(long, default_value = ",", value_parser = parse_delimiter)]
     delimiter: char,
+
+    /// Type to use for decimal/monetary columns.
+    ///
+    /// Controls the Arrow type for: c_acctbal, l_quantity, l_extendedprice,
+    /// l_discount, l_tax, o_totalprice, p_retailprice, ps_supplycost, s_acctbal
+    ///
+    /// Valid values: decimal128 (default), f64
+    #[arg(long, default_value = "decimal128")]
+    decimal_column_type: DecimalColumnType,
+
+    /// Type to use for date columns.
+    ///
+    /// Controls the Arrow type for: l_shipdate, l_commitdate, l_receiptdate, o_orderdate
+    ///
+    /// Valid values: date32 (default), timestamp_ms
+    #[arg(long, default_value = "date32")]
+    date_column_type: DateColumnType,
+
+    /// Type to use for nationkey columns.
+    ///
+    /// Controls the Arrow type for: c_nationkey, n_nationkey, s_nationkey
+    ///
+    /// Valid values: i64 (default), i32
+    #[arg(long, default_value = "i64")]
+    nationkey_type: KeyColumnType,
+
+    /// Type to use for regionkey columns.
+    ///
+    /// Controls the Arrow type for: n_regionkey, r_regionkey
+    ///
+    /// Valid values: i64 (default), i32
+    #[arg(long, default_value = "i64")]
+    regionkey_type: KeyColumnType,
 }
 
 /// Parse a delimiter string, handling escape sequences
@@ -235,7 +269,7 @@ impl Cli {
             if self.parquet_row_group_bytes != DEFAULT_PARQUET_ROW_GROUP_BYTES {
                 log::warn!("Parquet row group size option set but not generating Parquet files");
             }
-            if self.uncompressed_column_overrides.len() > 0 {
+            if !self.uncompressed_column_overrides.is_empty() {
                 log::warn!(
                     "Uncompressed column overrides option set but not generating Parquet files"
                 );
@@ -254,6 +288,13 @@ impl Cli {
         if self.format != OutputFormat::Csv && self.delimiter != ',' {
             eprintln!("Warning: Delimiter option set but not generating CSV files");
         }
+        // Build column type config from CLI args
+        let column_type_config = ColumnTypeConfig {
+            decimal_type: self.decimal_column_type,
+            date_type: self.date_column_type,
+            nationkey_type: self.nationkey_type,
+            regionkey_type: self.regionkey_type,
+        };
 
         // Build the generator using the library API
         let mut builder = TpchGenerator::builder()
@@ -265,7 +306,8 @@ impl Cli {
             .with_uncompressed_column_overrides(self.uncompressed_column_overrides)
             .with_parquet_row_group_bytes(self.parquet_row_group_bytes)
             .with_stdout(self.stdout)
-            .with_csv_delimiter(self.delimiter);
+            .with_csv_delimiter(self.delimiter)
+            .with_column_type_config(column_type_config);
 
         // Add tables if specified
         if let Some(tables) = self.tables {

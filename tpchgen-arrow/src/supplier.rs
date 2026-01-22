@@ -1,8 +1,10 @@
 use crate::conversions::{decimal128_array_from_iter, string_view_array_from_display_iter};
-use crate::{DEFAULT_BATCH_SIZE, RecordBatchIterator};
-use arrow::array::{Int64Array, RecordBatch};
+use crate::{
+    ColumnTypeConfig, DEFAULT_BATCH_SIZE, DecimalColumnType, KeyColumnType, RecordBatchIterator,
+};
+use arrow::array::{ArrayRef, Float64Array, Int32Array, Int64Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tpchgen::generators::{SupplierGenerator, SupplierGeneratorIterator};
 
 /// Generate [`Supplier`]s in [`RecordBatch`] format
@@ -32,13 +34,20 @@ use tpchgen::generators::{SupplierGenerator, SupplierGeneratorIterator};
 pub struct SupplierArrow {
     inner: SupplierGeneratorIterator<'static>,
     batch_size: usize,
+    column_type_config: ColumnTypeConfig,
+    /// Cached schema based on column_type_config
+    schema: SchemaRef,
 }
 
 impl SupplierArrow {
     pub fn new(generator: SupplierGenerator<'static>) -> Self {
+        let column_type_config = ColumnTypeConfig::default();
+        let schema = make_supplier_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
+            column_type_config,
+            schema,
         }
     }
 
@@ -51,7 +60,18 @@ impl SupplierArrow {
 
 impl RecordBatchIterator for SupplierArrow {
     fn schema(&self) -> &SchemaRef {
-        &SUPPLIER_SCHEMA
+        &self.schema
+    }
+
+    fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
+
+    fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        self.schema = make_supplier_schema(&config);
+        self.column_type_config = config;
+        self
     }
 }
 
@@ -65,12 +85,32 @@ impl Iterator for SupplierArrow {
             return None;
         }
 
-        let s_suppkey = Int64Array::from_iter_values(rows.iter().map(|r| r.s_suppkey));
+        let s_suppkey = Int64Array::from_iter_values(rows.iter().map(|r| r.s_suppkey as i64));
         let s_name = string_view_array_from_display_iter(rows.iter().map(|r| r.s_name));
         let s_address = string_view_array_from_display_iter(rows.iter().map(|r| &r.s_address));
-        let s_nationkey = Int64Array::from_iter_values(rows.iter().map(|r| r.s_nationkey));
+
+        // Build s_nationkey based on config
+        let s_nationkey: ArrayRef = match self.column_type_config.nationkey_type {
+            KeyColumnType::I32 => Arc::new(Int32Array::from_iter_values(
+                rows.iter().map(|r| r.s_nationkey as i32),
+            )),
+            KeyColumnType::I64 => Arc::new(Int64Array::from_iter_values(
+                rows.iter().map(|r| r.s_nationkey as i64),
+            )),
+        };
+
         let s_phone = string_view_array_from_display_iter(rows.iter().map(|r| &r.s_phone));
-        let s_acctbal = decimal128_array_from_iter(rows.iter().map(|r| r.s_acctbal));
+
+        // Build s_acctbal based on config
+        let s_acctbal: ArrayRef = match self.column_type_config.decimal_type {
+            DecimalColumnType::F64 => Arc::new(Float64Array::from_iter_values(
+                rows.iter().map(|r| r.s_acctbal.as_f64()),
+            )),
+            DecimalColumnType::Decimal128 => {
+                Arc::new(decimal128_array_from_iter(rows.iter().map(|r| r.s_acctbal)))
+            }
+        };
+
         let s_comment = string_view_array_from_display_iter(rows.iter().map(|r| &r.s_comment));
 
         let batch = RecordBatch::try_new(
@@ -79,9 +119,9 @@ impl Iterator for SupplierArrow {
                 Arc::new(s_suppkey),
                 Arc::new(s_name),
                 Arc::new(s_address),
-                Arc::new(s_nationkey),
+                s_nationkey,
                 Arc::new(s_phone),
-                Arc::new(s_acctbal),
+                s_acctbal,
                 Arc::new(s_comment),
             ],
         )
@@ -90,16 +130,23 @@ impl Iterator for SupplierArrow {
     }
 }
 
-/// Schema for the PartSupp
-static SUPPLIER_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(make_supplier_schema);
-fn make_supplier_schema() -> SchemaRef {
+fn make_supplier_schema(config: &ColumnTypeConfig) -> SchemaRef {
+    let nationkey_type = match config.nationkey_type {
+        KeyColumnType::I32 => DataType::Int32,
+        KeyColumnType::I64 => DataType::Int64,
+    };
+    let acctbal_type = match config.decimal_type {
+        DecimalColumnType::F64 => DataType::Float64,
+        DecimalColumnType::Decimal128 => DataType::Decimal128(15, 2),
+    };
+
     Arc::new(Schema::new(vec![
         Field::new("s_suppkey", DataType::Int64, false),
         Field::new("s_name", DataType::Utf8View, false),
         Field::new("s_address", DataType::Utf8View, false),
-        Field::new("s_nationkey", DataType::Int64, false),
+        Field::new("s_nationkey", nationkey_type, false),
         Field::new("s_phone", DataType::Utf8View, false),
-        Field::new("s_acctbal", DataType::Decimal128(15, 2), false),
+        Field::new("s_acctbal", acctbal_type, false),
         Field::new("s_comment", DataType::Utf8View, false),
     ]))
 }

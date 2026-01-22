@@ -25,6 +25,7 @@
 
 pub use crate::plan::{GenerationPlan, DEFAULT_PARQUET_ROW_GROUP_BYTES};
 pub use ::parquet::basic::Compression;
+pub use tpchgen_arrow::ColumnTypeConfig;
 
 pub mod csv;
 pub mod generate;
@@ -238,6 +239,8 @@ pub struct GeneratorConfig {
     pub csv_delimiter: char,
     /// Columns to not compress in Parquet files
     pub uncompressed_column_overrides: Vec<String>,
+    /// Column type configuration for Arrow output
+    pub column_type_config: ColumnTypeConfig,
 }
 
 impl Default for GeneratorConfig {
@@ -255,6 +258,7 @@ impl Default for GeneratorConfig {
             stdout: false,
             csv_delimiter: ',',
             uncompressed_column_overrides: Vec::new(),
+            column_type_config: ColumnTypeConfig::default(),
         }
     }
 }
@@ -380,6 +384,7 @@ impl TpchGenerator {
             config.output_dir,
             config.csv_delimiter,
             config.uncompressed_column_overrides,
+            config.column_type_config,
         );
 
         for table in tables {
@@ -538,6 +543,12 @@ impl TpchGeneratorBuilder {
     /// Set the CSV delimiter character (only applies to CSV format, default: ',')
     pub fn with_csv_delimiter(mut self, delimiter: char) -> Self {
         self.config.csv_delimiter = delimiter;
+        self
+    }
+
+    /// Set column type configuration for Arrow output
+    pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        self.config.column_type_config = config;
         self
     }
 

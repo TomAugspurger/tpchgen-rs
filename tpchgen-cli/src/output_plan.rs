@@ -3,7 +3,7 @@
 //! * [`OutputPlanGenerator`]: plans the output files to be generated
 
 use crate::plan::GenerationPlan;
-use crate::{OutputFormat, Table};
+use crate::{ColumnTypeConfig, OutputFormat, Table};
 use log::debug;
 use parquet::basic::Compression;
 use std::collections::HashSet;
@@ -54,6 +54,8 @@ pub struct OutputPlan {
     csv_delimiter: char,
     /// Columns to not compress in Parquet files
     uncompressed_column_overrides: Vec<String>,
+    /// Column type configuration for Arrow output
+    column_type_config: ColumnTypeConfig,
 }
 
 impl OutputPlan {
@@ -66,6 +68,7 @@ impl OutputPlan {
         generation_plan: GenerationPlan,
         csv_delimiter: char,
         uncompressed_column_overrides: Vec<String>,
+        column_type_config: ColumnTypeConfig,
     ) -> Self {
         Self {
             table,
@@ -76,6 +79,7 @@ impl OutputPlan {
             generation_plan,
             csv_delimiter,
             uncompressed_column_overrides,
+            column_type_config,
         }
     }
 
@@ -107,6 +111,11 @@ impl OutputPlan {
     /// Return the columns to not compress in Parquet files
     pub fn uncompressed_column_overrides(&self) -> &Vec<String> {
         &self.uncompressed_column_overrides
+    }
+
+    /// Return the column type configuration
+    pub fn column_type_config(&self) -> ColumnTypeConfig {
+        self.column_type_config
     }
 
     /// Return the number of chunks part(ition) count (the number of data chunks
@@ -155,6 +164,8 @@ pub struct OutputPlanGenerator {
     created_directories: HashSet<PathBuf>,
     /// Columns to not compress in Parquet files
     uncompressed_column_overrides: Vec<String>,
+    /// Column type configuration for Arrow output
+    column_type_config: ColumnTypeConfig,
 }
 
 impl OutputPlanGenerator {
@@ -167,6 +178,7 @@ impl OutputPlanGenerator {
         output_dir: PathBuf,
         csv_delimiter: char,
         uncompressed_column_overrides: Vec<String>,
+        column_type_config: ColumnTypeConfig,
     ) -> Self {
         Self {
             format,
@@ -178,7 +190,8 @@ impl OutputPlanGenerator {
             csv_delimiter,
             output_plans: Vec::new(),
             created_directories: HashSet::new(),
-            uncompressed_column_overrides: uncompressed_column_overrides,
+            uncompressed_column_overrides,
+            column_type_config,
         }
     }
 
@@ -235,6 +248,7 @@ impl OutputPlanGenerator {
             generation_plan,
             self.csv_delimiter,
             self.uncompressed_column_overrides.clone(),
+            self.column_type_config,
         );
 
         self.output_plans.push(plan);

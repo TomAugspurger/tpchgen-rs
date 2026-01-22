@@ -1,10 +1,16 @@
 use crate::conversions::{
     decimal128_array_from_iter, string_view_array_from_display_iter, to_arrow_date32,
+    to_arrow_timestamp_ms,
 };
-use crate::{DEFAULT_BATCH_SIZE, RecordBatchIterator};
-use arrow::array::{Date32Array, Int32Array, Int64Array, RecordBatch, StringViewArray};
+use crate::{
+    ColumnTypeConfig, DEFAULT_BATCH_SIZE, DateColumnType, DecimalColumnType, RecordBatchIterator,
+};
+use arrow::array::{
+    ArrayRef, Date32Array, Float64Array, Int32Array, Int64Array, RecordBatch, StringViewArray,
+    TimestampMillisecondArray,
+};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tpchgen::generators::{OrderGenerator, OrderGeneratorIterator};
 
 /// Generate [`Order`]s in [`RecordBatch`] format
@@ -47,13 +53,20 @@ use tpchgen::generators::{OrderGenerator, OrderGeneratorIterator};
 pub struct OrderArrow {
     inner: OrderGeneratorIterator<'static>,
     batch_size: usize,
+    column_type_config: ColumnTypeConfig,
+    /// Cached schema based on column_type_config
+    schema: SchemaRef,
 }
 
 impl OrderArrow {
     pub fn new(generator: OrderGenerator<'static>) -> Self {
+        let column_type_config = ColumnTypeConfig::default();
+        let schema = make_order_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
+            column_type_config,
+            schema,
         }
     }
 
@@ -66,7 +79,18 @@ impl OrderArrow {
 
 impl RecordBatchIterator for OrderArrow {
     fn schema(&self) -> &SchemaRef {
-        &ORDER_SCHEMA
+        &self.schema
+    }
+
+    fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
+
+    fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        self.schema = make_order_schema(&config);
+        self.column_type_config = config;
+        self
     }
 }
 
@@ -80,13 +104,31 @@ impl Iterator for OrderArrow {
             return None;
         }
 
-        let o_orderkey = Int64Array::from_iter_values(rows.iter().map(|r| r.o_orderkey));
-        let o_custkey = Int64Array::from_iter_values(rows.iter().map(|r| r.o_custkey));
+        let o_orderkey = Int64Array::from_iter_values(rows.iter().map(|r| r.o_orderkey as i64));
+        let o_custkey = Int64Array::from_iter_values(rows.iter().map(|r| r.o_custkey as i64));
         let o_orderstatus =
             string_view_array_from_display_iter(rows.iter().map(|r| r.o_orderstatus));
-        let o_totalprice = decimal128_array_from_iter(rows.iter().map(|r| r.o_totalprice));
-        let o_orderdate =
-            Date32Array::from_iter_values(rows.iter().map(|r| r.o_orderdate).map(to_arrow_date32));
+
+        // Build o_totalprice based on config
+        let o_totalprice: ArrayRef = match self.column_type_config.decimal_type {
+            DecimalColumnType::F64 => Arc::new(Float64Array::from_iter_values(
+                rows.iter().map(|r| r.o_totalprice.as_f64()),
+            )),
+            DecimalColumnType::Decimal128 => Arc::new(decimal128_array_from_iter(
+                rows.iter().map(|r| r.o_totalprice),
+            )),
+        };
+
+        // Build o_orderdate based on config
+        let o_orderdate: ArrayRef = match self.column_type_config.date_type {
+            DateColumnType::Date32 => Arc::new(Date32Array::from_iter_values(
+                rows.iter().map(|r| to_arrow_date32(r.o_orderdate)),
+            )),
+            DateColumnType::TimestampMs => Arc::new(TimestampMillisecondArray::from_iter_values(
+                rows.iter().map(|r| to_arrow_timestamp_ms(r.o_orderdate)),
+            )),
+        };
+
         let o_orderpriority =
             StringViewArray::from_iter_values(rows.iter().map(|r| r.o_orderpriority));
         let o_clerk = string_view_array_from_display_iter(rows.iter().map(|r| r.o_clerk));
@@ -99,8 +141,8 @@ impl Iterator for OrderArrow {
                 Arc::new(o_orderkey),
                 Arc::new(o_custkey),
                 Arc::new(o_orderstatus),
-                Arc::new(o_totalprice),
-                Arc::new(o_orderdate),
+                o_totalprice,
+                o_orderdate,
                 Arc::new(o_orderpriority),
                 Arc::new(o_clerk),
                 Arc::new(o_shippriority),
@@ -112,15 +154,24 @@ impl Iterator for OrderArrow {
     }
 }
 
-/// Schema for the Order
-static ORDER_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(make_order_schema);
-fn make_order_schema() -> SchemaRef {
+fn make_order_schema(config: &ColumnTypeConfig) -> SchemaRef {
+    let totalprice_type = match config.decimal_type {
+        DecimalColumnType::F64 => DataType::Float64,
+        DecimalColumnType::Decimal128 => DataType::Decimal128(15, 2),
+    };
+    let date_type = match config.date_type {
+        DateColumnType::Date32 => DataType::Date32,
+        DateColumnType::TimestampMs => {
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Millisecond, None)
+        }
+    };
+
     Arc::new(Schema::new(vec![
         Field::new("o_orderkey", DataType::Int64, false),
         Field::new("o_custkey", DataType::Int64, false),
         Field::new("o_orderstatus", DataType::Utf8View, false),
-        Field::new("o_totalprice", DataType::Decimal128(15, 2), false),
-        Field::new("o_orderdate", DataType::Date32, false),
+        Field::new("o_totalprice", totalprice_type, false),
+        Field::new("o_orderdate", date_type, false),
         Field::new("o_orderpriority", DataType::Utf8View, false),
         Field::new("o_clerk", DataType::Utf8View, false),
         Field::new("o_shippriority", DataType::Int32, false),

@@ -16,8 +16,8 @@ use tpchgen::generators::{
     PartSuppGenerator, RegionGenerator, SupplierGenerator,
 };
 use tpchgen_arrow::{
-    CustomerArrow, LineItemArrow, NationArrow, OrderArrow, PartArrow, PartSuppArrow,
-    RecordBatchIterator, RegionArrow, SupplierArrow,
+    ColumnTypeConfig, CustomerArrow, LineItemArrow, NationArrow, OrderArrow, PartArrow,
+    PartSuppArrow, RecordBatchIterator, RegionArrow, SupplierArrow,
 };
 
 /// Runs multiple [`OutputPlan`]s in parallel, managing the number of threads
@@ -270,6 +270,7 @@ macro_rules! define_run {
         async fn $FUN_NAME(plan: OutputPlan, num_threads: usize) -> io::Result<usize> {
             use crate::GenerationPlan;
             let scale_factor = plan.scale_factor();
+            let column_type_config = plan.column_type_config();
             info!("Writing {plan} using {num_threads} threads");
 
             /// These interior functions are used to tell the compiler that the lifetime is 'static
@@ -306,12 +307,15 @@ macro_rules! define_run {
             fn parquet_sources(
                 generation_plan: &GenerationPlan,
                 scale_factor: f64,
+                column_type_config: ColumnTypeConfig,
             ) -> impl Iterator<Item: RecordBatchIterator> + 'static {
                 generation_plan
                     .clone()
                     .into_iter()
                     .map(move |(part, num_parts)| $GENERATOR::new(scale_factor, part, num_parts))
-                    .map(<$PARQUET_SOURCE>::new)
+                    .map(move |gen| {
+                        <$PARQUET_SOURCE>::new(gen).with_column_type_config(column_type_config)
+                    })
             }
 
             // Dispatch to the appropriate output format
@@ -326,7 +330,8 @@ macro_rules! define_run {
                     write_file(plan, num_threads, gens).await?
                 }
                 OutputFormat::Parquet => {
-                    let gens = parquet_sources(plan.generation_plan(), scale_factor);
+                    let gens =
+                        parquet_sources(plan.generation_plan(), scale_factor, column_type_config);
                     write_parquet(plan, num_threads, gens).await?
                 }
             };

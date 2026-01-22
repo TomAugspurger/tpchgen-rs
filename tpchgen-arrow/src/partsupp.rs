@@ -1,8 +1,8 @@
 use crate::conversions::{decimal128_array_from_iter, string_view_array_from_display_iter};
-use crate::{DEFAULT_BATCH_SIZE, RecordBatchIterator};
-use arrow::array::{Int32Array, Int64Array, RecordBatch};
+use crate::{ColumnTypeConfig, DEFAULT_BATCH_SIZE, DecimalColumnType, RecordBatchIterator};
+use arrow::array::{ArrayRef, Float64Array, Int32Array, Int64Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tpchgen::generators::{PartSuppGenerator, PartSuppGeneratorIterator};
 
 /// Generate [`PartSupp`]s in [`RecordBatch`] format
@@ -45,13 +45,20 @@ use tpchgen::generators::{PartSuppGenerator, PartSuppGeneratorIterator};
 pub struct PartSuppArrow {
     inner: PartSuppGeneratorIterator<'static>,
     batch_size: usize,
+    column_type_config: ColumnTypeConfig,
+    /// Cached schema based on column_type_config
+    schema: SchemaRef,
 }
 
 impl PartSuppArrow {
     pub fn new(generator: PartSuppGenerator<'static>) -> Self {
+        let column_type_config = ColumnTypeConfig::default();
+        let schema = make_partsupp_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
+            column_type_config,
+            schema,
         }
     }
 
@@ -64,7 +71,18 @@ impl PartSuppArrow {
 
 impl RecordBatchIterator for PartSuppArrow {
     fn schema(&self) -> &SchemaRef {
-        &PARTSUPP_SCHEMA
+        &self.schema
+    }
+
+    fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
+
+    fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        self.schema = make_partsupp_schema(&config);
+        self.column_type_config = config;
+        self
     }
 }
 
@@ -78,10 +96,20 @@ impl Iterator for PartSuppArrow {
             return None;
         }
 
-        let ps_partkey = Int64Array::from_iter_values(rows.iter().map(|r| r.ps_partkey));
-        let ps_suppkey = Int64Array::from_iter_values(rows.iter().map(|r| r.ps_suppkey));
+        let ps_partkey = Int64Array::from_iter_values(rows.iter().map(|r| r.ps_partkey as i64));
+        let ps_suppkey = Int64Array::from_iter_values(rows.iter().map(|r| r.ps_suppkey as i64));
         let ps_availqty = Int32Array::from_iter_values(rows.iter().map(|r| r.ps_availqty));
-        let ps_supplycost = decimal128_array_from_iter(rows.iter().map(|r| r.ps_supplycost));
+
+        // Build ps_supplycost based on config
+        let ps_supplycost: ArrayRef = match self.column_type_config.decimal_type {
+            DecimalColumnType::F64 => Arc::new(Float64Array::from_iter_values(
+                rows.iter().map(|r| r.ps_supplycost.as_f64()),
+            )),
+            DecimalColumnType::Decimal128 => Arc::new(decimal128_array_from_iter(
+                rows.iter().map(|r| r.ps_supplycost),
+            )),
+        };
+
         let ps_comment = string_view_array_from_display_iter(rows.iter().map(|r| r.ps_comment));
 
         let batch = RecordBatch::try_new(
@@ -90,7 +118,7 @@ impl Iterator for PartSuppArrow {
                 Arc::new(ps_partkey),
                 Arc::new(ps_suppkey),
                 Arc::new(ps_availqty),
-                Arc::new(ps_supplycost),
+                ps_supplycost,
                 Arc::new(ps_comment),
             ],
         )
@@ -99,14 +127,17 @@ impl Iterator for PartSuppArrow {
     }
 }
 
-/// Schema for the PartSupp
-static PARTSUPP_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(make_partsupp_schema);
-fn make_partsupp_schema() -> SchemaRef {
+fn make_partsupp_schema(config: &ColumnTypeConfig) -> SchemaRef {
+    let supplycost_type = match config.decimal_type {
+        DecimalColumnType::F64 => DataType::Float64,
+        DecimalColumnType::Decimal128 => DataType::Decimal128(15, 2),
+    };
+
     Arc::new(Schema::new(vec![
         Field::new("ps_partkey", DataType::Int64, false),
         Field::new("ps_suppkey", DataType::Int64, false),
         Field::new("ps_availqty", DataType::Int32, false),
-        Field::new("ps_supplycost", DataType::Decimal128(15, 2), false),
+        Field::new("ps_supplycost", supplycost_type, false),
         Field::new("ps_comment", DataType::Utf8View, false),
     ]))
 }

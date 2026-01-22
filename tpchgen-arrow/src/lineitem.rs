@@ -1,10 +1,13 @@
-use crate::conversions::{decimal128_array_from_iter, to_arrow_date32};
-use crate::{DEFAULT_BATCH_SIZE, RecordBatchIterator};
+use crate::conversions::{decimal128_array_from_iter, to_arrow_date32, to_arrow_timestamp_ms};
+use crate::{
+    ColumnTypeConfig, DEFAULT_BATCH_SIZE, DateColumnType, DecimalColumnType, RecordBatchIterator,
+};
 use arrow::array::{
-    Date32Array, Decimal128Array, Int32Array, Int64Array, RecordBatch, StringViewArray,
+    ArrayRef, Date32Array, Float64Array, Int32Array, Int64Array, RecordBatch, StringViewArray,
+    TimestampMillisecondArray,
 };
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tpchgen::generators::{LineItemGenerator, LineItemGeneratorIterator};
 
 /// Generate  [`LineItem`]s in [`RecordBatch`] format
@@ -52,13 +55,20 @@ use tpchgen::generators::{LineItemGenerator, LineItemGeneratorIterator};
 pub struct LineItemArrow {
     inner: LineItemGeneratorIterator<'static>,
     batch_size: usize,
+    column_type_config: ColumnTypeConfig,
+    /// Cached schema based on column_type_config
+    schema: SchemaRef,
 }
 
 impl LineItemArrow {
     pub fn new(generator: LineItemGenerator<'static>) -> Self {
+        let column_type_config = ColumnTypeConfig::default();
+        let schema = make_lineitem_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
+            column_type_config,
+            schema,
         }
     }
 
@@ -71,7 +81,18 @@ impl LineItemArrow {
 
 impl RecordBatchIterator for LineItemArrow {
     fn schema(&self) -> &SchemaRef {
-        &LINEITEM_SCHEMA
+        &self.schema
+    }
+
+    fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
+
+    fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        self.schema = make_lineitem_schema(&config);
+        self.column_type_config = config;
+        self
     }
 }
 
@@ -87,36 +108,85 @@ impl Iterator for LineItemArrow {
         }
 
         // Convert column by column
-        let l_orderkey = Int64Array::from_iter_values(rows.iter().map(|row| row.l_orderkey));
-        let l_partkey = Int64Array::from_iter_values(rows.iter().map(|row| row.l_partkey));
-        let l_suppkey = Int64Array::from_iter_values(rows.iter().map(|row| row.l_suppkey));
+        let l_orderkey = Int64Array::from_iter_values(rows.iter().map(|row| row.l_orderkey as i64));
+        let l_partkey = Int64Array::from_iter_values(rows.iter().map(|row| row.l_partkey as i64));
+        let l_suppkey = Int64Array::from_iter_values(rows.iter().map(|row| row.l_suppkey as i64));
         let l_linenumber = Int32Array::from_iter_values(rows.iter().map(|row| row.l_linenumber));
-        let l_quantity = Decimal128Array::from_iter_values(rows.iter().map(|row| {
-            // Convert the i64 to Arrow Decimal(15,2)
-            // TODO it is supposed to be decimal in the spec
-            (row.l_quantity as i128) * 100
-        }))
-        .with_precision_and_scale(15, 2)
-        .unwrap();
-        let l_extended_price =
-            decimal128_array_from_iter(rows.iter().map(|row| row.l_extendedprice));
-        let l_discount = decimal128_array_from_iter(rows.iter().map(|row| row.l_discount));
-        let l_tax = decimal128_array_from_iter(rows.iter().map(|row| row.l_tax));
+
+        // Build the decimal/float columns based on config
+        let l_quantity: ArrayRef = match self.column_type_config.decimal_type {
+            DecimalColumnType::F64 => Arc::new(Float64Array::from_iter_values(
+                rows.iter().map(|row| row.l_quantity as f64),
+            )),
+            DecimalColumnType::Decimal128 => {
+                Arc::new(decimal128_array_from_iter(rows.iter().map(|row| {
+                    tpchgen::decimal::TPCHDecimal::new(row.l_quantity as i64 * 100)
+                })))
+            }
+        };
+
+        let l_extended_price: ArrayRef = match self.column_type_config.decimal_type {
+            DecimalColumnType::F64 => Arc::new(Float64Array::from_iter_values(
+                rows.iter().map(|row| row.l_extendedprice.as_f64()),
+            )),
+            DecimalColumnType::Decimal128 => Arc::new(decimal128_array_from_iter(
+                rows.iter().map(|row| row.l_extendedprice),
+            )),
+        };
+
+        let l_discount: ArrayRef = match self.column_type_config.decimal_type {
+            DecimalColumnType::F64 => Arc::new(Float64Array::from_iter_values(
+                rows.iter().map(|row| row.l_discount.as_f64()),
+            )),
+            DecimalColumnType::Decimal128 => Arc::new(decimal128_array_from_iter(
+                rows.iter().map(|row| row.l_discount),
+            )),
+        };
+
+        let l_tax: ArrayRef = match self.column_type_config.decimal_type {
+            DecimalColumnType::F64 => Arc::new(Float64Array::from_iter_values(
+                rows.iter().map(|row| row.l_tax.as_f64()),
+            )),
+            DecimalColumnType::Decimal128 => {
+                Arc::new(decimal128_array_from_iter(rows.iter().map(|row| row.l_tax)))
+            }
+        };
+
         let l_returnflag =
             StringViewArray::from_iter_values(rows.iter().map(|row| row.l_returnflag));
         let l_linestatus =
             StringViewArray::from_iter_values(rows.iter().map(|row| row.l_linestatus));
-        let l_shipdate = Date32Array::from_iter_values(
-            rows.iter().map(|row| row.l_shipdate).map(to_arrow_date32),
-        );
-        let l_commitdate = Date32Array::from_iter_values(
-            rows.iter().map(|row| row.l_commitdate).map(to_arrow_date32),
-        );
-        let l_receiptdate = Date32Array::from_iter_values(
-            rows.iter()
-                .map(|row| row.l_receiptdate)
-                .map(to_arrow_date32),
-        );
+
+        // Build date columns based on config
+        let l_shipdate: ArrayRef = match self.column_type_config.date_type {
+            DateColumnType::Date32 => Arc::new(Date32Array::from_iter_values(
+                rows.iter().map(|row| to_arrow_date32(row.l_shipdate)),
+            )),
+            DateColumnType::TimestampMs => Arc::new(TimestampMillisecondArray::from_iter_values(
+                rows.iter().map(|row| to_arrow_timestamp_ms(row.l_shipdate)),
+            )),
+        };
+
+        let l_commitdate: ArrayRef = match self.column_type_config.date_type {
+            DateColumnType::Date32 => Arc::new(Date32Array::from_iter_values(
+                rows.iter().map(|row| to_arrow_date32(row.l_commitdate)),
+            )),
+            DateColumnType::TimestampMs => Arc::new(TimestampMillisecondArray::from_iter_values(
+                rows.iter()
+                    .map(|row| to_arrow_timestamp_ms(row.l_commitdate)),
+            )),
+        };
+
+        let l_receiptdate: ArrayRef = match self.column_type_config.date_type {
+            DateColumnType::Date32 => Arc::new(Date32Array::from_iter_values(
+                rows.iter().map(|row| to_arrow_date32(row.l_receiptdate)),
+            )),
+            DateColumnType::TimestampMs => Arc::new(TimestampMillisecondArray::from_iter_values(
+                rows.iter()
+                    .map(|row| to_arrow_timestamp_ms(row.l_receiptdate)),
+            )),
+        };
+
         let l_shipinstruct =
             StringViewArray::from_iter_values(rows.iter().map(|row| row.l_shipinstruct));
         let l_shipmode = StringViewArray::from_iter_values(rows.iter().map(|row| row.l_shipmode));
@@ -129,15 +199,15 @@ impl Iterator for LineItemArrow {
                 Arc::new(l_partkey),
                 Arc::new(l_suppkey),
                 Arc::new(l_linenumber),
-                Arc::new(l_quantity),
-                Arc::new(l_extended_price),
-                Arc::new(l_discount),
-                Arc::new(l_tax),
+                l_quantity,
+                l_extended_price,
+                l_discount,
+                l_tax,
                 Arc::new(l_returnflag),
                 Arc::new(l_linestatus),
-                Arc::new(l_shipdate),
-                Arc::new(l_commitdate),
-                Arc::new(l_receiptdate),
+                l_shipdate,
+                l_commitdate,
+                l_receiptdate,
                 Arc::new(l_shipinstruct),
                 Arc::new(l_shipmode),
                 Arc::new(l_comment),
@@ -149,24 +219,32 @@ impl Iterator for LineItemArrow {
     }
 }
 
-/// Schema for the LineItem table
-static LINEITEM_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(make_lineitem_schema);
+fn make_lineitem_schema(config: &ColumnTypeConfig) -> SchemaRef {
+    let decimal_type = match config.decimal_type {
+        DecimalColumnType::F64 => DataType::Float64,
+        DecimalColumnType::Decimal128 => DataType::Decimal128(15, 2),
+    };
+    let date_type = match config.date_type {
+        DateColumnType::Date32 => DataType::Date32,
+        DateColumnType::TimestampMs => {
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Millisecond, None)
+        }
+    };
 
-fn make_lineitem_schema() -> SchemaRef {
     Arc::new(Schema::new(vec![
         Field::new("l_orderkey", DataType::Int64, false),
         Field::new("l_partkey", DataType::Int64, false),
         Field::new("l_suppkey", DataType::Int64, false),
         Field::new("l_linenumber", DataType::Int32, false),
-        Field::new("l_quantity", DataType::Decimal128(15, 2), false),
-        Field::new("l_extendedprice", DataType::Decimal128(15, 2), false),
-        Field::new("l_discount", DataType::Decimal128(15, 2), false),
-        Field::new("l_tax", DataType::Decimal128(15, 2), false),
+        Field::new("l_quantity", decimal_type.clone(), false),
+        Field::new("l_extendedprice", decimal_type.clone(), false),
+        Field::new("l_discount", decimal_type.clone(), false),
+        Field::new("l_tax", decimal_type, false),
         Field::new("l_returnflag", DataType::Utf8View, false),
         Field::new("l_linestatus", DataType::Utf8View, false),
-        Field::new("l_shipdate", DataType::Date32, false),
-        Field::new("l_commitdate", DataType::Date32, false),
-        Field::new("l_receiptdate", DataType::Date32, false),
+        Field::new("l_shipdate", date_type.clone(), false),
+        Field::new("l_commitdate", date_type.clone(), false),
+        Field::new("l_receiptdate", date_type, false),
         Field::new("l_shipinstruct", DataType::Utf8View, false),
         Field::new("l_shipmode", DataType::Utf8View, false),
         Field::new("l_comment", DataType::Utf8View, false),
