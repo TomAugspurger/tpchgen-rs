@@ -3,7 +3,7 @@
 //! * [`OutputPlanGenerator`]: plans the output files to be generated
 
 use crate::plan::GenerationPlan;
-use crate::{ColumnTypeConfig, OutputFormat, Table};
+use crate::{ColumnTypeConfig, OutputFormat, ParquetVersion, Table};
 use log::debug;
 use parquet::basic::Compression;
 use std::collections::HashSet;
@@ -56,6 +56,8 @@ pub struct OutputPlan {
     uncompressed_column_overrides: Vec<String>,
     /// Column type configuration for Arrow output
     column_type_config: ColumnTypeConfig,
+    /// Parquet format version
+    parquet_version: ParquetVersion,
 }
 
 impl OutputPlan {
@@ -69,6 +71,7 @@ impl OutputPlan {
         csv_delimiter: char,
         uncompressed_column_overrides: Vec<String>,
         column_type_config: ColumnTypeConfig,
+        parquet_version: ParquetVersion,
     ) -> Self {
         Self {
             table,
@@ -80,6 +83,7 @@ impl OutputPlan {
             csv_delimiter,
             uncompressed_column_overrides,
             column_type_config,
+            parquet_version,
         }
     }
 
@@ -116,6 +120,11 @@ impl OutputPlan {
     /// Return the column type configuration
     pub fn column_type_config(&self) -> ColumnTypeConfig {
         self.column_type_config
+    }
+
+    /// Return the parquet format version
+    pub fn parquet_version(&self) -> ParquetVersion {
+        self.parquet_version
     }
 
     /// Return the number of chunks part(ition) count (the number of data chunks
@@ -166,6 +175,8 @@ pub struct OutputPlanGenerator {
     uncompressed_column_overrides: Vec<String>,
     /// Column type configuration for Arrow output
     column_type_config: ColumnTypeConfig,
+    /// Parquet format version
+    parquet_version: ParquetVersion,
 }
 
 impl OutputPlanGenerator {
@@ -179,6 +190,7 @@ impl OutputPlanGenerator {
         csv_delimiter: char,
         uncompressed_column_overrides: Vec<String>,
         column_type_config: ColumnTypeConfig,
+        parquet_version: ParquetVersion,
     ) -> Self {
         Self {
             format,
@@ -192,6 +204,7 @@ impl OutputPlanGenerator {
             created_directories: HashSet::new(),
             uncompressed_column_overrides,
             column_type_config,
+            parquet_version,
         }
     }
 
@@ -249,6 +262,7 @@ impl OutputPlanGenerator {
             self.csv_delimiter,
             self.uncompressed_column_overrides.clone(),
             self.column_type_config,
+            self.parquet_version,
         );
 
         self.output_plans.push(plan);

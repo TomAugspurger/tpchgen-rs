@@ -15,7 +15,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tpchgen_arrow::{ColumnTypeConfig, DateColumnType, DecimalColumnType, KeyColumnType};
 use tpchgen_cli::{
-    Compression, OutputFormat, Table, TpchGenerator, DEFAULT_PARQUET_ROW_GROUP_BYTES,
+    Compression, OutputFormat, ParquetVersion, Table, TpchGenerator,
+    DEFAULT_PARQUET_ROW_GROUP_BYTES,
 };
 
 #[derive(Parser)]
@@ -169,6 +170,16 @@ struct Cli {
     /// Valid values: i64 (default), i32
     #[arg(long, default_value = "i64")]
     regionkey_type: KeyColumnType,
+
+    /// Parquet format version to write.
+    ///
+    /// Version 1 (default) has broader compatibility. Version 2 uses Data Page V2
+    /// format with improved encodings like RLE_DICTIONARY. Ensure downstream
+    /// tools support version 2 before enabling.
+    ///
+    /// Valid values: v1 (default), v2
+    #[arg(long, default_value = "v1")]
+    parquet_version: ParquetVersion,
 }
 
 /// Parse a delimiter string, handling escape sequences
@@ -274,6 +285,9 @@ impl Cli {
                     "Uncompressed column overrides option set but not generating Parquet files"
                 );
             }
+            if self.parquet_version != ParquetVersion::V1 {
+                log::warn!("Parquet version option set but not generating Parquet files");
+            }
         }
 
         // Validate delimiter usage
@@ -307,7 +321,8 @@ impl Cli {
             .with_parquet_row_group_bytes(self.parquet_row_group_bytes)
             .with_stdout(self.stdout)
             .with_csv_delimiter(self.delimiter)
-            .with_column_type_config(column_type_config);
+            .with_column_type_config(column_type_config)
+            .with_parquet_version(self.parquet_version);
 
         // Add tables if specified
         if let Some(tables) = self.tables {

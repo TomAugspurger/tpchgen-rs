@@ -25,6 +25,8 @@
 
 pub use crate::plan::{GenerationPlan, DEFAULT_PARQUET_ROW_GROUP_BYTES};
 pub use ::parquet::basic::Compression;
+pub use ::parquet::file::properties::WriterVersion;
+use std::fmt;
 pub use tpchgen_arrow::ColumnTypeConfig;
 
 pub mod csv;
@@ -197,6 +199,53 @@ impl Display for OutputFormat {
     }
 }
 
+/// Parquet format version for output files
+///
+/// Controls which Parquet format version to use when writing files.
+/// Version 1 has broader compatibility, while Version 2 uses Data Page V2
+/// format with improved encodings.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum ParquetVersion {
+    /// Parquet format version 1 (default, broader compatibility)
+    #[default]
+    V1,
+    /// Parquet format version 2 (Data Page V2, improved encodings)
+    V2,
+}
+
+impl ParquetVersion {
+    /// Convert to the parquet crate's WriterVersion enum
+    pub fn to_writer_version(self) -> WriterVersion {
+        match self {
+            ParquetVersion::V1 => WriterVersion::PARQUET_1_0,
+            ParquetVersion::V2 => WriterVersion::PARQUET_2_0,
+        }
+    }
+}
+
+impl FromStr for ParquetVersion {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "v1" | "1" | "1.0" => Ok(ParquetVersion::V1),
+            "v2" | "2" | "2.0" => Ok(ParquetVersion::V2),
+            _ => Err(format!(
+                "Invalid parquet version: {s}. Valid versions are: v1, v2"
+            )),
+        }
+    }
+}
+
+impl fmt::Display for ParquetVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParquetVersion::V1 => write!(f, "v1"),
+            ParquetVersion::V2 => write!(f, "v2"),
+        }
+    }
+}
+
 /// Configuration for TPC-H data generation
 ///
 /// This struct holds all the parameters needed to generate TPC-H benchmark data.
@@ -241,6 +290,8 @@ pub struct GeneratorConfig {
     pub uncompressed_column_overrides: Vec<String>,
     /// Column type configuration for Arrow output
     pub column_type_config: ColumnTypeConfig,
+    /// Parquet format version
+    pub parquet_version: ParquetVersion,
 }
 
 impl Default for GeneratorConfig {
@@ -259,6 +310,7 @@ impl Default for GeneratorConfig {
             csv_delimiter: ',',
             uncompressed_column_overrides: Vec::new(),
             column_type_config: ColumnTypeConfig::default(),
+            parquet_version: ParquetVersion::default(),
         }
     }
 }
@@ -385,6 +437,7 @@ impl TpchGenerator {
             config.csv_delimiter,
             config.uncompressed_column_overrides,
             config.column_type_config,
+            config.parquet_version,
         );
 
         for table in tables {
@@ -549,6 +602,12 @@ impl TpchGeneratorBuilder {
     /// Set column type configuration for Arrow output
     pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
         self.config.column_type_config = config;
+        self
+    }
+
+    /// Set Parquet format version (default: V1)
+    pub fn with_parquet_version(mut self, version: ParquetVersion) -> Self {
+        self.config.parquet_version = version;
         self
     }
 

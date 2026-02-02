@@ -1,6 +1,7 @@
 //! Parquet output format
 
 use crate::statistics::WriteStatistics;
+use crate::ParquetVersion;
 use arrow::datatypes::SchemaRef;
 use futures::StreamExt;
 use log::debug;
@@ -33,12 +34,13 @@ pub async fn generate_parquet<W: Write + Send + IntoSize + 'static, I>(
     num_threads: usize,
     parquet_compression: Compression,
     uncompressed_column_overrides: &[String],
+    parquet_version: ParquetVersion,
 ) -> Result<(), io::Error>
 where
     I: Iterator<Item: RecordBatchIterator> + 'static,
 {
     debug!(
-        "Generating Parquet with {num_threads} threads, using {parquet_compression} compression"
+        "Generating Parquet with {num_threads} threads, using {parquet_compression} compression, version {parquet_version}"
     );
     // Based on example in https://docs.rs/parquet/latest/parquet/arrow/arrow_writer/struct.ArrowColumnWriter.html
     let mut iter_iter = iter_iter.peekable();
@@ -50,8 +52,9 @@ where
     let schema = Arc::clone(first_iter.schema());
 
     // Compute the parquet schema
-    let mut writer_properties_builder =
-        WriterProperties::builder().set_compression(parquet_compression);
+    let mut writer_properties_builder = WriterProperties::builder()
+        .set_compression(parquet_compression)
+        .set_writer_version(parquet_version.to_writer_version());
 
     for column in uncompressed_column_overrides {
         writer_properties_builder = writer_properties_builder
