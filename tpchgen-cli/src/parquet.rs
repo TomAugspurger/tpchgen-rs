@@ -9,7 +9,7 @@ use parquet::arrow::ArrowSchemaConverter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
-use parquet::schema::types::SchemaDescPtr;
+use parquet::schema::types::{ColumnPath, SchemaDescPtr};
 use std::io;
 use std::io::Write;
 use std::sync::Arc;
@@ -32,6 +32,7 @@ pub async fn generate_parquet<W: Write + Send + IntoSize + 'static, I>(
     iter_iter: I,
     num_threads: usize,
     parquet_compression: Compression,
+    uncompressed_column_overrides: &[String],
 ) -> Result<(), io::Error>
 where
     I: Iterator<Item: RecordBatchIterator> + 'static,
@@ -49,9 +50,15 @@ where
     let schema = Arc::clone(first_iter.schema());
 
     // Compute the parquet schema
-    let writer_properties = WriterProperties::builder()
-        .set_compression(parquet_compression)
-        .build();
+    let mut writer_properties_builder =
+        WriterProperties::builder().set_compression(parquet_compression);
+
+    for column in uncompressed_column_overrides {
+        writer_properties_builder = writer_properties_builder
+            .set_column_compression(ColumnPath::from(column.as_str()), Compression::UNCOMPRESSED);
+    }
+
+    let writer_properties = writer_properties_builder.build();
     let writer_properties = Arc::new(writer_properties);
     let parquet_schema = Arc::new(
         ArrowSchemaConverter::new()

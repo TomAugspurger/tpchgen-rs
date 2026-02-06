@@ -236,6 +236,8 @@ pub struct GeneratorConfig {
     pub stdout: bool,
     /// CSV delimiter character (only applies to CSV format)
     pub csv_delimiter: char,
+    /// Columns to not compress in Parquet files
+    pub uncompressed_column_overrides: Vec<String>,
 }
 
 impl Default for GeneratorConfig {
@@ -252,6 +254,7 @@ impl Default for GeneratorConfig {
             part: None,
             stdout: false,
             csv_delimiter: ',',
+            uncompressed_column_overrides: Vec::new(),
         }
     }
 }
@@ -376,6 +379,7 @@ impl TpchGenerator {
             config.stdout,
             config.output_dir,
             config.csv_delimiter,
+            config.uncompressed_column_overrides,
         );
 
         for table in tables {
@@ -495,6 +499,15 @@ impl TpchGeneratorBuilder {
     /// Set Parquet compression format (default: SNAPPY)
     pub fn with_parquet_compression(mut self, compression: Compression) -> Self {
         self.config.parquet_compression = compression;
+        self
+    }
+
+    /// Set columns to not compress in Parquet files
+    pub fn with_uncompressed_column_overrides(
+        mut self,
+        uncompressed_column_overrides: Vec<String>,
+    ) -> Self {
+        self.config.uncompressed_column_overrides = uncompressed_column_overrides;
         self
     }
 

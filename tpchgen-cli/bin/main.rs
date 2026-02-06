@@ -93,6 +93,9 @@ struct Cli {
     #[arg(short = 'c', long, default_value = "SNAPPY")]
     parquet_compression: Compression,
 
+    #[arg(short, long, num_args=0.., value_delimiter = ',')]
+    uncompressed_column_overrides: Vec<String>,
+
     /// Verbose output
     ///
     /// When specified, sets the log level to `info` and ignores the `RUST_LOG`
@@ -232,6 +235,11 @@ impl Cli {
             if self.parquet_row_group_bytes != DEFAULT_PARQUET_ROW_GROUP_BYTES {
                 log::warn!("Parquet row group size option set but not generating Parquet files");
             }
+            if self.uncompressed_column_overrides.len() > 0 {
+                log::warn!(
+                    "Uncompressed column overrides option set but not generating Parquet files"
+                );
+            }
         }
 
         // Validate delimiter usage
@@ -254,6 +262,7 @@ impl Cli {
             .with_format(self.format)
             .with_num_threads(self.num_threads)
             .with_parquet_compression(self.parquet_compression)
+            .with_uncompressed_column_overrides(self.uncompressed_column_overrides)
             .with_parquet_row_group_bytes(self.parquet_row_group_bytes)
             .with_stdout(self.stdout)
             .with_csv_delimiter(self.delimiter);

@@ -217,7 +217,14 @@ where
     match plan.output_location() {
         OutputLocation::Stdout => {
             let writer = BufWriter::with_capacity(32 * 1024 * 1024, io::stdout()); // 32MB buffer
-            generate_parquet(writer, sources, num_threads, plan.parquet_compression()).await
+            generate_parquet(
+                writer,
+                sources,
+                num_threads,
+                plan.parquet_compression(),
+                plan.uncompressed_column_overrides(),
+            )
+            .await
         }
         OutputLocation::File(path) => {
             // if the output already exists, skip running
@@ -231,7 +238,14 @@ where
                 io::Error::other(format!("Failed to create {temp_path:?}: {err}"))
             })?;
             let writer = BufWriter::with_capacity(32 * 1024 * 1024, file); // 32MB buffer
-            generate_parquet(writer, sources, num_threads, plan.parquet_compression()).await?;
+            generate_parquet(
+                writer,
+                sources,
+                num_threads,
+                plan.parquet_compression(),
+                plan.uncompressed_column_overrides(),
+            )
+            .await?;
             // rename the temp file to the final path
             std::fs::rename(&temp_path, path).map_err(|e| {
                 io::Error::other(format!(
