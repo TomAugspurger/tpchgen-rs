@@ -7,10 +7,11 @@ use futures::StreamExt;
 use log::debug;
 use parquet::arrow::arrow_writer::{compute_leaves, ArrowColumnChunk};
 use parquet::arrow::ArrowSchemaConverter;
-use parquet::basic::Compression;
+use parquet::basic::{Compression, Encoding};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::types::{ColumnPath, SchemaDescPtr};
+use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use std::sync::Arc;
@@ -34,6 +35,7 @@ pub async fn generate_parquet<W: Write + Send + IntoSize + 'static, I>(
     num_threads: usize,
     parquet_compression: Compression,
     uncompressed_column_overrides: &[String],
+    column_encoding_overrides: &HashMap<String, Encoding>,
     parquet_version: ParquetVersion,
 ) -> Result<(), io::Error>
 where
@@ -59,6 +61,13 @@ where
     for column in uncompressed_column_overrides {
         writer_properties_builder = writer_properties_builder
             .set_column_compression(ColumnPath::from(column.as_str()), Compression::UNCOMPRESSED);
+    }
+
+    // Apply column encoding overrides
+    for (column, encoding) in column_encoding_overrides {
+        debug!("Setting column {column} encoding to {encoding}");
+        writer_properties_builder = writer_properties_builder
+            .set_column_encoding(ColumnPath::from(column.as_str()), *encoding);
     }
 
     let writer_properties = writer_properties_builder.build();

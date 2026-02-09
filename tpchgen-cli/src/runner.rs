@@ -223,6 +223,7 @@ where
                 num_threads,
                 plan.parquet_compression(),
                 plan.uncompressed_column_overrides(),
+                plan.column_encoding_overrides(),
                 plan.parquet_version(),
             )
             .await
@@ -245,6 +246,7 @@ where
                 num_threads,
                 plan.parquet_compression(),
                 plan.uncompressed_column_overrides(),
+                plan.column_encoding_overrides(),
                 plan.parquet_version(),
             )
             .await?;

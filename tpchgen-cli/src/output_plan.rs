@@ -5,8 +5,8 @@
 use crate::plan::GenerationPlan;
 use crate::{ColumnTypeConfig, OutputFormat, ParquetVersion, Table};
 use log::debug;
-use parquet::basic::Compression;
-use std::collections::HashSet;
+use parquet::basic::{Compression, Encoding};
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::path::PathBuf;
@@ -54,6 +54,8 @@ pub struct OutputPlan {
     csv_delimiter: char,
     /// Columns to not compress in Parquet files
     uncompressed_column_overrides: Vec<String>,
+    /// Column encoding overrides
+    column_encoding_overrides: HashMap<String, Encoding>,
     /// Column type configuration for Arrow output
     column_type_config: ColumnTypeConfig,
     /// Parquet format version
@@ -70,6 +72,7 @@ impl OutputPlan {
         generation_plan: GenerationPlan,
         csv_delimiter: char,
         uncompressed_column_overrides: Vec<String>,
+        column_encoding_overrides: HashMap<String, Encoding>,
         column_type_config: ColumnTypeConfig,
         parquet_version: ParquetVersion,
     ) -> Self {
@@ -82,6 +85,7 @@ impl OutputPlan {
             generation_plan,
             csv_delimiter,
             uncompressed_column_overrides,
+            column_encoding_overrides,
             column_type_config,
             parquet_version,
         }
@@ -115,6 +119,11 @@ impl OutputPlan {
     /// Return the columns to not compress in Parquet files
     pub fn uncompressed_column_overrides(&self) -> &Vec<String> {
         &self.uncompressed_column_overrides
+    }
+
+    /// Return the column encoding overrides
+    pub fn column_encoding_overrides(&self) -> &HashMap<String, Encoding> {
+        &self.column_encoding_overrides
     }
 
     /// Return the column type configuration
@@ -173,6 +182,8 @@ pub struct OutputPlanGenerator {
     created_directories: HashSet<PathBuf>,
     /// Columns to not compress in Parquet files
     uncompressed_column_overrides: Vec<String>,
+    /// Column encoding overrides
+    column_encoding_overrides: HashMap<String, Encoding>,
     /// Column type configuration for Arrow output
     column_type_config: ColumnTypeConfig,
     /// Parquet format version
@@ -189,6 +200,7 @@ impl OutputPlanGenerator {
         output_dir: PathBuf,
         csv_delimiter: char,
         uncompressed_column_overrides: Vec<String>,
+        column_encoding_overrides: HashMap<String, Encoding>,
         column_type_config: ColumnTypeConfig,
         parquet_version: ParquetVersion,
     ) -> Self {
@@ -203,6 +215,7 @@ impl OutputPlanGenerator {
             output_plans: Vec::new(),
             created_directories: HashSet::new(),
             uncompressed_column_overrides,
+            column_encoding_overrides,
             column_type_config,
             parquet_version,
         }
@@ -261,6 +274,7 @@ impl OutputPlanGenerator {
             generation_plan,
             self.csv_delimiter,
             self.uncompressed_column_overrides.clone(),
+            self.column_encoding_overrides.clone(),
             self.column_type_config,
             self.parquet_version,
         );

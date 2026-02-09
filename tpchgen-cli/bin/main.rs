@@ -10,12 +10,13 @@
 use clap::builder::TypedValueParser;
 use clap::Parser;
 use log::{info, LevelFilter};
+use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
 use tpchgen_arrow::{ColumnTypeConfig, DateColumnType, DecimalColumnType, KeyColumnType};
 use tpchgen_cli::{
-    Compression, OutputFormat, ParquetVersion, Table, TpchGenerator,
+    Compression, Encoding, OutputFormat, ParquetVersion, Table, TpchGenerator,
     DEFAULT_PARQUET_ROW_GROUP_BYTES,
 };
 
@@ -97,6 +98,16 @@ struct Cli {
 
     #[arg(short, long, num_args=0.., value_delimiter = ',')]
     uncompressed_column_overrides: Vec<String>,
+
+    /// Override encoding for specific columns.
+    ///
+    /// Format: column_name=ENCODING (can be repeated)
+    ///
+    /// See parquet::basic::Encoding for supported encodings.
+    ///
+    /// Example: --column-encoding=l_quantity=PLAIN --column-encoding=l_orderkey=DELTA_BINARY_PACKED
+    #[arg(long = "column-encoding", num_args=0.., value_delimiter = ',', value_parser = parse_column_encoding)]
+    column_encoding_overrides: Vec<(String, Encoding)>,
 
     /// Verbose output
     ///
@@ -180,6 +191,32 @@ struct Cli {
     /// Valid values: v1 (default), v2
     #[arg(long, default_value = "v1")]
     parquet_version: ParquetVersion,
+}
+
+/// Parse a column=encoding pair, validating the encoding.
+///
+/// Returns a tuple of (column_name, Encoding) on success.
+fn parse_column_encoding(s: &str) -> Result<(String, Encoding), String> {
+    let (column, encoding_str) = s.split_once('=').ok_or_else(|| {
+        format!(
+            "Invalid column encoding format: '{}'. Expected 'column_name=ENCODING'",
+            s
+        )
+    })?;
+
+    if column.is_empty() {
+        return Err("Column name cannot be empty".to_string());
+    }
+
+    let encoding = Encoding::from_str(encoding_str).map_err(|e| {
+        format!(
+            "Invalid encoding '{}' for column '{}': {}. \
+             See parquet::basic::Encoding for valid encodings.",
+            encoding_str, column, e
+        )
+    })?;
+
+    Ok((column.to_string(), encoding))
 }
 
 /// Parse a delimiter string, handling escape sequences
@@ -285,6 +322,9 @@ impl Cli {
                     "Uncompressed column overrides option set but not generating Parquet files"
                 );
             }
+            if !self.column_encoding_overrides.is_empty() {
+                log::warn!("Column encoding overrides option set but not generating Parquet files");
+            }
             if self.parquet_version != ParquetVersion::V1 {
                 log::warn!("Parquet version option set but not generating Parquet files");
             }
@@ -310,6 +350,10 @@ impl Cli {
             regionkey_type: self.regionkey_type,
         };
 
+        // Convert column encoding overrides from Vec<(String, Encoding)> to HashMap
+        let column_encoding_overrides: HashMap<String, Encoding> =
+            self.column_encoding_overrides.into_iter().collect();
+
         // Build the generator using the library API
         let mut builder = TpchGenerator::builder()
             .with_scale_factor(self.scale_factor)
@@ -318,6 +362,7 @@ impl Cli {
             .with_num_threads(self.num_threads)
             .with_parquet_compression(self.parquet_compression)
             .with_uncompressed_column_overrides(self.uncompressed_column_overrides)
+            .with_column_encoding_overrides(column_encoding_overrides)
             .with_parquet_row_group_bytes(self.parquet_row_group_bytes)
             .with_stdout(self.stdout)
             .with_csv_delimiter(self.delimiter)

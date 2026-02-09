@@ -24,8 +24,9 @@
 //! ```
 
 pub use crate::plan::{GenerationPlan, DEFAULT_PARQUET_ROW_GROUP_BYTES};
-pub use ::parquet::basic::Compression;
+pub use ::parquet::basic::{Compression, Encoding};
 pub use ::parquet::file::properties::WriterVersion;
+use std::collections::HashMap;
 use std::fmt;
 pub use tpchgen_arrow::ColumnTypeConfig;
 
@@ -288,6 +289,8 @@ pub struct GeneratorConfig {
     pub csv_delimiter: char,
     /// Columns to not compress in Parquet files
     pub uncompressed_column_overrides: Vec<String>,
+    /// Column encoding overrides
+    pub column_encoding_overrides: HashMap<String, Encoding>,
     /// Column type configuration for Arrow output
     pub column_type_config: ColumnTypeConfig,
     /// Parquet format version
@@ -309,6 +312,7 @@ impl Default for GeneratorConfig {
             stdout: false,
             csv_delimiter: ',',
             uncompressed_column_overrides: Vec::new(),
+            column_encoding_overrides: HashMap::new(),
             column_type_config: ColumnTypeConfig::default(),
             parquet_version: ParquetVersion::default(),
         }
@@ -436,6 +440,7 @@ impl TpchGenerator {
             config.output_dir,
             config.csv_delimiter,
             config.uncompressed_column_overrides,
+            config.column_encoding_overrides,
             config.column_type_config,
             config.parquet_version,
         );
@@ -566,6 +571,15 @@ impl TpchGeneratorBuilder {
         uncompressed_column_overrides: Vec<String>,
     ) -> Self {
         self.config.uncompressed_column_overrides = uncompressed_column_overrides;
+        self
+    }
+
+    /// Set column encoding overrides
+    pub fn with_column_encoding_overrides(
+        mut self,
+        column_encoding_overrides: HashMap<String, Encoding>,
+    ) -> Self {
+        self.config.column_encoding_overrides = column_encoding_overrides;
         self
     }
 

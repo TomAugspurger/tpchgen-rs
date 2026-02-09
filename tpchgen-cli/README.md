@@ -56,6 +56,9 @@ tpchgen-cli -s 10 --output-dir sf10
 # (220GB, 20 files, 6B lineitem rows, 3.5 minutes on a modern laptop)
 tpchgen-cli -s 1000 --tables lineitem --parts 20 --format=parquet --parquet-row-group-bytes=100000000 --output-dir sf1000
 
+# Override column encodings (e.g., use PLAIN instead of dictionary for specific columns)
+tpchgen-cli -s 1 --format=parquet --column-encoding=l_quantity=PLAIN --column-encoding=l_orderkey=DELTA_BINARY_PACKED
+
 # Scale Factor 10, partition 2 and 3 of 10 in sf10 directory
 #
 # partitioned/

@@ -667,6 +667,159 @@ async fn test_quiet_flag_suppresses_warnings() {
     );
 }
 
+/// Test that invalid column encoding format is rejected
+#[test]
+fn test_column_encoding_invalid_format() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    // Missing equals sign should fail
+    Command::cargo_bin("tpchgen-cli")
+        .expect("Binary not found")
+        .arg("--format")
+        .arg("parquet")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--column-encoding")
+        .arg("invalid_no_equals")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "Invalid column encoding format: 'invalid_no_equals'. Expected 'column_name=ENCODING'",
+        ));
+}
+
+/// Test that invalid encoding name is rejected
+#[test]
+fn test_column_encoding_invalid_encoding() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    Command::cargo_bin("tpchgen-cli")
+        .expect("Binary not found")
+        .arg("--format")
+        .arg("parquet")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--column-encoding")
+        .arg("l_quantity=INVALID_ENCODING")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "Invalid encoding 'INVALID_ENCODING'",
+        ))
+        .stderr(predicates::str::contains("for column 'l_quantity'"));
+}
+
+/// Test that empty column name is rejected
+#[test]
+fn test_column_encoding_empty_column() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    Command::cargo_bin("tpchgen-cli")
+        .expect("Binary not found")
+        .arg("--format")
+        .arg("parquet")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--column-encoding")
+        .arg("=PLAIN")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("Column name cannot be empty"));
+}
+
+/// Test that column encoding override is applied to parquet output
+#[test]
+fn test_column_encoding_applied_to_parquet() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+    let output_path = temp_dir.path().join("region.parquet");
+
+    // Generate with PLAIN encoding for r_name column (default would use RLE_DICTIONARY)
+    Command::cargo_bin("tpchgen-cli")
+        .expect("Binary not found")
+        .arg("--format")
+        .arg("parquet")
+        .arg("--tables")
+        .arg("region")
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--column-encoding")
+        .arg("r_name=PLAIN")
+        .assert()
+        .success();
+
+    // Read the parquet file and verify the encoding was applied
+    let file = File::open(&output_path).expect("Failed to open parquet file");
+    let mut metadata_reader = ParquetMetaDataReader::new();
+    metadata_reader.try_parse(&file).unwrap();
+    let metadata = metadata_reader.finish().unwrap();
+
+    // Get the first row group's column metadata for r_name (column index 1)
+    let row_group = &metadata.row_groups()[0];
+    let r_name_column = row_group.column(1);
+
+    // Check that PLAIN encoding is in the encodings list
+    let encodings: Vec<_> = r_name_column.encodings().collect();
+    assert!(
+        encodings.contains(&parquet::basic::Encoding::PLAIN),
+        "Expected PLAIN encoding for r_name column, got: {:?}",
+        encodings
+    );
+}
+
+/// Test that column encoding warning appears when not generating parquet
+#[test]
+fn test_column_encoding_warning_non_parquet() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    Command::cargo_bin("tpchgen-cli")
+        .expect("Binary not found")
+        .arg("--format")
+        .arg("csv")
+        .arg("--tables")
+        .arg("region")
+        .arg("--scale-factor")
+        .arg("0.0001")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--column-encoding")
+        .arg("r_name=PLAIN")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "Column encoding overrides option set but not generating Parquet files",
+        ));
+}
+
+/// Test multiple column encoding overrides
+#[test]
+fn test_column_encoding_multiple_columns() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    // Generate with multiple encoding overrides
+    Command::cargo_bin("tpchgen-cli")
+        .expect("Binary not found")
+        .arg("--format")
+        .arg("parquet")
+        .arg("--tables")
+        .arg("region")
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--column-encoding")
+        .arg("r_name=PLAIN")
+        .arg("--column-encoding")
+        .arg("r_comment=PLAIN")
+        .assert()
+        .success();
+
+    // Verify file was created
+    let output_path = temp_dir.path().join("region.parquet");
+    assert!(output_path.exists());
+}
+
 fn read_gzipped_file_to_string<P: AsRef<Path>>(path: P) -> Result<String, std::io::Error> {
     let file = File::open(path)?;
     let mut decoder = flate2::read::GzDecoder::new(file);
