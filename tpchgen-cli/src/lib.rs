@@ -291,6 +291,8 @@ pub struct GeneratorConfig {
     pub uncompressed_column_overrides: Vec<String>,
     /// Column encoding overrides
     pub column_encoding_overrides: HashMap<String, Encoding>,
+    /// Columns for which to disable dictionary encoding
+    pub disable_dictionary_encoding_columns: Vec<String>,
     /// Column type configuration for Arrow output
     pub column_type_config: ColumnTypeConfig,
     /// Parquet format version
@@ -313,6 +315,7 @@ impl Default for GeneratorConfig {
             csv_delimiter: ',',
             uncompressed_column_overrides: Vec::new(),
             column_encoding_overrides: HashMap::new(),
+            disable_dictionary_encoding_columns: Vec::new(),
             column_type_config: ColumnTypeConfig::default(),
             parquet_version: ParquetVersion::default(),
         }
@@ -441,6 +444,7 @@ impl TpchGenerator {
             config.csv_delimiter,
             config.uncompressed_column_overrides,
             config.column_encoding_overrides,
+            config.disable_dictionary_encoding_columns,
             config.column_type_config,
             config.parquet_version,
         );
@@ -580,6 +584,15 @@ impl TpchGeneratorBuilder {
         column_encoding_overrides: HashMap<String, Encoding>,
     ) -> Self {
         self.config.column_encoding_overrides = column_encoding_overrides;
+        self
+    }
+
+    /// Set columns for which to disable dictionary encoding
+    pub fn with_disable_dictionary_encoding_columns(
+        mut self,
+        disable_dictionary_encoding_columns: Vec<String>,
+    ) -> Self {
+        self.config.disable_dictionary_encoding_columns = disable_dictionary_encoding_columns;
         self
     }
 

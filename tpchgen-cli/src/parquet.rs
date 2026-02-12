@@ -36,6 +36,7 @@ pub async fn generate_parquet<W: Write + Send + IntoSize + 'static, I>(
     parquet_compression: Compression,
     uncompressed_column_overrides: &[String],
     column_encoding_overrides: &HashMap<String, Encoding>,
+    disable_dictionary_encoding_columns: &[String],
     parquet_version: ParquetVersion,
 ) -> Result<(), io::Error>
 where
@@ -68,6 +69,13 @@ where
         debug!("Setting column {column} encoding to {encoding}");
         writer_properties_builder = writer_properties_builder
             .set_column_encoding(ColumnPath::from(column.as_str()), *encoding);
+    }
+
+    // Disable dictionary encoding for specified columns
+    for column in disable_dictionary_encoding_columns {
+        debug!("Disabling dictionary encoding for column {column}");
+        writer_properties_builder = writer_properties_builder
+            .set_column_dictionary_enabled(ColumnPath::from(column.as_str()), false);
     }
 
     let writer_properties = writer_properties_builder.build();

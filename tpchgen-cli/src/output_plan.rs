@@ -56,6 +56,8 @@ pub struct OutputPlan {
     uncompressed_column_overrides: Vec<String>,
     /// Column encoding overrides
     column_encoding_overrides: HashMap<String, Encoding>,
+    /// Columns for which to disable dictionary encoding
+    disable_dictionary_encoding_columns: Vec<String>,
     /// Column type configuration for Arrow output
     column_type_config: ColumnTypeConfig,
     /// Parquet format version
@@ -73,6 +75,7 @@ impl OutputPlan {
         csv_delimiter: char,
         uncompressed_column_overrides: Vec<String>,
         column_encoding_overrides: HashMap<String, Encoding>,
+        disable_dictionary_encoding_columns: Vec<String>,
         column_type_config: ColumnTypeConfig,
         parquet_version: ParquetVersion,
     ) -> Self {
@@ -86,6 +89,7 @@ impl OutputPlan {
             csv_delimiter,
             uncompressed_column_overrides,
             column_encoding_overrides,
+            disable_dictionary_encoding_columns,
             column_type_config,
             parquet_version,
         }
@@ -124,6 +128,11 @@ impl OutputPlan {
     /// Return the column encoding overrides
     pub fn column_encoding_overrides(&self) -> &HashMap<String, Encoding> {
         &self.column_encoding_overrides
+    }
+
+    /// Return the columns for which to disable dictionary encoding
+    pub fn disable_dictionary_encoding_columns(&self) -> &Vec<String> {
+        &self.disable_dictionary_encoding_columns
     }
 
     /// Return the column type configuration
@@ -184,6 +193,8 @@ pub struct OutputPlanGenerator {
     uncompressed_column_overrides: Vec<String>,
     /// Column encoding overrides
     column_encoding_overrides: HashMap<String, Encoding>,
+    /// Columns for which to disable dictionary encoding
+    disable_dictionary_encoding_columns: Vec<String>,
     /// Column type configuration for Arrow output
     column_type_config: ColumnTypeConfig,
     /// Parquet format version
@@ -201,6 +212,7 @@ impl OutputPlanGenerator {
         csv_delimiter: char,
         uncompressed_column_overrides: Vec<String>,
         column_encoding_overrides: HashMap<String, Encoding>,
+        disable_dictionary_encoding_columns: Vec<String>,
         column_type_config: ColumnTypeConfig,
         parquet_version: ParquetVersion,
     ) -> Self {
@@ -216,6 +228,7 @@ impl OutputPlanGenerator {
             created_directories: HashSet::new(),
             uncompressed_column_overrides,
             column_encoding_overrides,
+            disable_dictionary_encoding_columns,
             column_type_config,
             parquet_version,
         }
@@ -275,6 +288,7 @@ impl OutputPlanGenerator {
             self.csv_delimiter,
             self.uncompressed_column_overrides.clone(),
             self.column_encoding_overrides.clone(),
+            self.disable_dictionary_encoding_columns.clone(),
             self.column_type_config,
             self.parquet_version,
         );

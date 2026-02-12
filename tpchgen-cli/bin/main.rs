@@ -109,6 +109,17 @@ struct Cli {
     #[arg(long = "column-encoding", num_args=0.., value_delimiter = ',', value_parser = parse_column_encoding)]
     column_encoding_overrides: Vec<(String, Encoding)>,
 
+    /// Disable dictionary encoding for specific columns.
+    ///
+    /// Format: comma-separated list of column names
+    ///
+    /// Dictionary encoding is enabled by default for all columns. This option
+    /// allows you to disable it for specific columns.
+    ///
+    /// Example: --disable-dictionary-encoding=c_name,l_comment
+    #[arg(long = "disable-dictionary-encoding", num_args=0.., value_delimiter = ',')]
+    disable_dictionary_encoding_columns: Vec<String>,
+
     /// Verbose output
     ///
     /// When specified, sets the log level to `info` and ignores the `RUST_LOG`
@@ -325,6 +336,11 @@ impl Cli {
             if !self.column_encoding_overrides.is_empty() {
                 log::warn!("Column encoding overrides option set but not generating Parquet files");
             }
+            if !self.disable_dictionary_encoding_columns.is_empty() {
+                log::warn!(
+                    "Disable dictionary encoding option set but not generating Parquet files"
+                );
+            }
             if self.parquet_version != ParquetVersion::V1 {
                 log::warn!("Parquet version option set but not generating Parquet files");
             }
@@ -363,6 +379,7 @@ impl Cli {
             .with_parquet_compression(self.parquet_compression)
             .with_uncompressed_column_overrides(self.uncompressed_column_overrides)
             .with_column_encoding_overrides(column_encoding_overrides)
+            .with_disable_dictionary_encoding_columns(self.disable_dictionary_encoding_columns)
             .with_parquet_row_group_bytes(self.parquet_row_group_bytes)
             .with_stdout(self.stdout)
             .with_csv_delimiter(self.delimiter)

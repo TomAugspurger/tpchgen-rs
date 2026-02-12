@@ -224,6 +224,7 @@ where
                 plan.parquet_compression(),
                 plan.uncompressed_column_overrides(),
                 plan.column_encoding_overrides(),
+                plan.disable_dictionary_encoding_columns(),
                 plan.parquet_version(),
             )
             .await
@@ -247,6 +248,7 @@ where
                 plan.parquet_compression(),
                 plan.uncompressed_column_overrides(),
                 plan.column_encoding_overrides(),
+                plan.disable_dictionary_encoding_columns(),
                 plan.parquet_version(),
             )
             .await?;
