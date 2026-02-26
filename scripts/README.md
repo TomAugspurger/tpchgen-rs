@@ -20,7 +20,7 @@ With docker:
 docker run -it --rm \
    --user $(id -u):$(id -g) \
    -v /output-directory-on-host:/data \
-   ghcr.io/tomaugspurger/tpchgen-rs:latest \
+   ghcr.io/tomaugspurger/tpchgen-rs:tom-sync-upstream-clean \
    -s 10 -o /data/scale-10
 ```
 
