@@ -170,11 +170,6 @@ DEFAULT_DISABLE_DICTIONARY_ENCODING_COLUMNS = [
   "r_name",
 ]
 
-def get_default_threads() -> int:
-    """Detect number of CPU threads."""
-    cpu_count = os.cpu_count()
-    return cpu_count if cpu_count else 4
-
 
 def calculate_partitions(scale: int, multiplier: int) -> int:
     """
@@ -246,6 +241,8 @@ def generate_partition(
         str(part),
         "--parquet-row-group-bytes",
         str(row_group_bytes),
+        "--num-threads",
+        "1",
     ]
 
     # Add uncompressed column overrides unless using upstream compression
@@ -325,7 +322,6 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
 Current defaults:
-  Number of parallel jobs: {get_default_threads()}
   Parquet row group bytes (per table):
     customer: {PARQUET_ROW_GROUP_BYTES_DEFAULTS["customer"]}
     lineitem: {PARQUET_ROW_GROUP_BYTES_DEFAULTS["lineitem"]}
@@ -374,8 +370,8 @@ Current defaults:
         "-j",
         "--jobs",
         type=int,
-        default=get_default_threads(),
-        help=f"Number of parallel jobs (default: number of CPU threads = {get_default_threads()})",
+        default=None,
+        help=f"Number of parallel jobs (default: number of CPU threads)",
     )
     parser.add_argument(
         "--parquet-row-group-bytes",
