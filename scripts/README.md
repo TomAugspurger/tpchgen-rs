@@ -9,10 +9,9 @@ tags: ["documentation", "auto-generated", "context", "tpch", "data-generation"]
 
 # TPC-H Data Generation Script
 
-The repository includes a `generate_tpch.sh` script that automates the generation of TPC-H datasets with specific partition configurations for each table. The script supports arbitrary scale factors, each with its own optimized partition configuration, and can generate data in parallel using multiple CPU threads.
+The repository scripts to automate the generation of TPC-H datasets with specific partition configurations for each table. The script supports arbitrary scale factors, each with its own optimized partition configuration, and can generate data in parallel using multiple CPU threads.
 
 ## Usage
-
 
 With docker:
 
@@ -36,7 +35,7 @@ By default, the script will produce output that differs from a default `tpchgen-
 
 ## Output Metadata
 
-`scripts/generate_tpch.sh` generates a `metadata.json` at the root of the directory containing information about the generated tables.
+`scripts/generate_tpch.py` generates a `metadata.json` at the root of the directory containing information about the generated tables.
 
 ## Partition Configuration
 
@@ -69,24 +68,6 @@ The script will use one of the following methods for parallel execution, in orde
 1. GNU Parallel (if available)
 2. xargs with parallel execution support
 3. A simple fallback using background jobs
-
-## Usage
-
-```shell
-./generate_tpch.sh [OPTIONS]
-
-Options:
-  -s, --scale SCALE              Scale factor (any positive integer; default: 1000)
-  -f, --format FORMAT            Output format: parquet or tbl (default: parquet)
-  -o, --output DIR               Base output directory (default: tpch-data)
-  -j, --jobs THREADS             Number of parallel jobs (default: number of CPU threads)
-      --parquet-row-group-bytes N  Override parquet row group size in bytes for all tables
-      --use-upstream-compression Use upstream default compression (compress all columns)
-      --use-float-type           Use f64 for decimal columns (instead of decimal128)
-      --use-timestamp-type       Use timestamp_ms for date columns (instead of date32)
-      --use-large-ids            Use i64 for nationkey/regionkey columns (instead of i32)
-  -h, --help                     Show this help message
-```
 
 ### Column Type Options
 
@@ -121,32 +102,11 @@ The script uses per-table default row group sizes optimized to produce approxima
 
 Use `--parquet-row-group-bytes N` to override these defaults with a single value for all tables.
 
-## Examples
-
-```shell
-# Generate TPC-H data with scale factor 1000 in Parquet format using all CPU threads
-./generate_tpch.sh -s 1000 -f parquet -o tpch-sf1000
-
-# Generate TPC-H data with scale factor 3000 using 16 parallel jobs
-./generate_tpch.sh -s 3000 -f parquet -o tpch-sf3000 -j 16
-
-# Generate TPC-H data with scale factor 1000 using only 4 parallel jobs and custom row group size
-./generate_tpch.sh -s 1000 -f parquet -o tpch-sf1000 -j 4 --parquet-row-group-bytes 1048576
-
-# Generate TPC-H data with f64 decimals and timestamp dates
-./generate_tpch.sh -s 100 --use-float-type --use-timestamp-type
-
-# Generate TPC-H data with upstream-compatible i64 nationkey/regionkey columns
-./generate_tpch.sh -s 100 --use-large-ids
-
-# Generate TPC-H data with upstream-compatible compression (all columns compressed)
-./generate_tpch.sh -s 100 --use-upstream-compression
-```
-
 The script will create a directory structure where each table has its own subdirectory containing the specified number of partitions based on the chosen scale factor. For example:
 
 ```
 tpch-data/
+├── metadata.json
 ├── customer/
 │   ├── part.0.parquet
 │   ├── part.1.parquet
