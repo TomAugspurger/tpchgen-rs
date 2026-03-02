@@ -204,6 +204,7 @@ def generate_partition(
     nationkey_type: str,
     regionkey_type: str,
     use_upstream_disable_dictionary_encoding: bool,
+    no_delta_length_byte_array: bool,
 ) -> tuple[str, int, float]:
     """
     Generate a single partition.
@@ -256,6 +257,8 @@ def generate_partition(
 
         for col, encoding in DEFAULT_COLUMN_ENCODINGS.items():
             if decimal_column_type == "f64" and col in decimal_columns_with_delta and encoding == DELTA_BINARY_PACKED:
+                encoding = PLAIN
+            elif encoding == DELTA_LENGTH_BYTE_ARRAY and no_delta_length_byte_array:
                 encoding = PLAIN
 
             cmd.append(f"--column-encoding={col}={encoding}")
@@ -414,6 +417,11 @@ Current defaults:
         action="store_true",
         help="Use upstream default disable dictionary encoding (disable dictionary encoding for all columns)",
     )
+    parser.add_argument(
+        "--no-delta-length-byte-array",
+        action="store_true",
+        help="Use PLAIN encoding (instead of DELTA_LENGTH_BYTE_ARRAY). Some engines don't support DELTA_LENGTH_BYTE_ARRAY.",
+    )
 
     args = parser.parse_args()
 
@@ -485,6 +493,7 @@ Current defaults:
                     nationkey_type=nationkey_type,
                     regionkey_type=regionkey_type,
                     use_upstream_disable_dictionary_encoding=args.use_upstream_disable_dictionary_encoding,
+                    no_delta_length_byte_array=args.no_delta_length_byte_array,
                 )
                 futures.append(future)
 
