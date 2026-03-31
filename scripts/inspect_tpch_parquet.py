@@ -467,6 +467,13 @@ def main():
         default={},
         help="Options to include in the metadata (default: {})",
     )
+    parser.add_argument(
+        "-k",
+        "--kind",
+        choices=["tpch", "tpcds"],
+        help="Dataset kind. Controls which tables are expected.",
+        default="tpch",
+    )
     args = parser.parse_args()
 
     data_dir = args.data_dir
@@ -476,16 +483,44 @@ def main():
     if args.output == "text":
         print(f"Inspecting {data_dir}")
 
-    tables = [
-        "customer",
-        "lineitem",
-        "nation",
-        "orders",
-        "part",
-        "partsupp",
-        "region",
-        "supplier",
-    ]
+    if args.kind == "tpch":
+        tables = [
+            "customer",
+            "lineitem",
+            "nation",
+            "orders",
+            "part",
+            "partsupp",
+            "region",
+            "supplier",
+        ]
+    else:
+        tables = [
+            "call_center",
+            "catalog_page",
+            "catalog_returns",
+            "catalog_sales",
+            "customer",
+            "customer_address",
+            "customer_demographics",
+            "date_dim",
+            "household_demographics",
+            "income_band",
+            "inventory",
+            "item",
+            "promotion",
+            "reason",
+            "ship_mode",
+            "store",
+            "store_returns",
+            "store_sales",
+            "time_dim",
+            "warehouse",
+            "web_page",
+            "web_returns",
+            "web_sales",
+            "web_site",
+        ]
 
     # Collect all table info
     table_infos: list[tuple[str, TableInfo]] = []
