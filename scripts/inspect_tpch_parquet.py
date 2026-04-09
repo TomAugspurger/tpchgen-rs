@@ -19,6 +19,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 import pyarrow as pa
+import pyarrow.fs as pafs
 import pyarrow.parquet as pq
 
 
@@ -187,8 +188,9 @@ class TableInfo:
     columns: dict[str, ColumnInfo]
 
     @classmethod
-    def build(cls, file_path: Path) -> "TableInfo":
-        ds = pq.ParquetDataset(file_path)
+    def build(cls, filesystem: pafs.FileSystem, path: str) -> "TableInfo":
+        """Inspect a parquet table at ``path`` on the given ``filesystem`` (S3, local, etc.)."""
+        ds = pq.ParquetDataset(path, filesystem=filesystem)
 
         rg_flat = [rg for fragment in ds.fragments for rg in fragment.row_groups]
 
@@ -205,12 +207,14 @@ class TableInfo:
         rows_per_rg = [rg.num_rows for rg in rg_flat]
         bytes_per_rg = [rg.total_byte_size for rg in rg_flat]
 
-        # Get file metadata from the first file
-        parquet_files = list(file_path.glob("*.parquet"))
+        # Paths from the dataset are relative to ``filesystem`` (no s3:// prefix).
+        parquet_files = _parquet_paths_for_dataset(ds, path)
         if not parquet_files:
-            parquet_files = [file_path]  # Single file case
+            raise ValueError(
+                f"No parquet file paths resolved for dataset {path!r}"
+            )
 
-        first_pf = pq.ParquetFile(parquet_files[0])
+        first_pf = pq.ParquetFile(parquet_files[0], filesystem=filesystem)
         file_metadata = first_pf.metadata
         parquet_format_version: Literal[1, 2] = (
             2 if file_metadata.format_version == "2.6" else 1
@@ -225,7 +229,11 @@ class TableInfo:
         with ThreadPoolExecutor() as executor:
             results = list(
                 executor.map(
-                    functools.partial(process_parquet_file, table_schema=ds.schema),
+                    functools.partial(
+                        process_parquet_file,
+                        table_schema=ds.schema,
+                        filesystem=filesystem,
+                    ),
                     parquet_files,
                 )
             )
@@ -347,10 +355,83 @@ class Metadata:
         return result
 
 
-def process_parquet_file(pf_path: Path, table_schema: pa.Schema) -> dict[str, dict[str, Any]]:
+def _parquet_paths_for_dataset(ds: pq.ParquetDataset, dataset_path: str) -> list[str]:
+    """Resolve parquet file paths within ``ds.filesystem`` (no URI prefix)."""
+    files = ds.files
+    if files:
+        return list(files)
+    out: list[str] = []
+    for frag in ds.fragments:
+        try:
+            out.append(str(frag.path))
+        except AttributeError:
+            continue
+    if out:
+        return out
+    fs = ds.filesystem
+    # Single-file dataset: path may be the file itself
+    try:
+        info = fs.get_file_info(dataset_path)
+    except OSError:
+        return []
+    if info.type == pafs.FileType.File:
+        return [dataset_path]
+    return []
+
+
+def _is_s3_url(s: str) -> bool:
+    return s.startswith("s3://")
+
+
+def open_filesystem(location: str | Path) -> tuple[pafs.FileSystem, str]:
+    """
+    Open a PyArrow filesystem and root path for a local directory/file or ``s3://`` URI.
+
+    The returned ``path`` is always relative to that filesystem (what ``ParquetDataset``
+    and ``ParquetFile`` expect together with ``filesystem=``).
+    """
+    s = str(location)
+    if _is_s3_url(s):
+        return pafs.FileSystem.from_uri(s.rstrip("/"))
+    p = Path(s).expanduser().resolve()
+    return pafs.FileSystem.from_uri(p.as_uri())
+
+
+
+def _table_path_exists(
+    filesystem: pafs.FileSystem, root_path: str, table: str
+) -> str | None:
+    """Return a parquet dataset path (directory or single file) under ``root_path`` if present."""
+    root_path = root_path.rstrip("/")
+    candidates = [
+        f"{root_path}/{table}",
+        f"{root_path}/{table}.parquet",
+    ]
+    for candidate in candidates:
+        try:
+            ds = pq.ParquetDataset(candidate, filesystem=filesystem)
+            if ds.fragments:
+                return candidate
+        except (OSError, pa.ArrowInvalid, ValueError):
+            continue
+    return None
+
+
+def write_json_destination(destination: str, data: dict[str, Any]) -> None:
+    """Write JSON to a local path or s3:// URL using PyArrow filesystem (not fsspec)."""
+    with open(destination, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def process_parquet_file(
+    pf_path: str,
+    table_schema: pa.Schema,
+    *,
+    filesystem: pafs.FileSystem,
+) -> dict[str, dict[str, Any]]:
     """Process a single parquet file and return its column aggregates."""
     file_aggregates: dict[str, dict[str, Any]] = {}
-    pf = pq.ParquetFile(pf_path)
+    pf = pq.ParquetFile(pf_path, filesystem=filesystem)
     metadata = pf.metadata
 
     for rg_idx in range(metadata.num_row_groups):
@@ -433,7 +514,11 @@ def inspect_table_text(
 
 def main():
     parser = argparse.ArgumentParser(description="Inspect TPC-H parquet files")
-    parser.add_argument("data_dir", type=Path, help="Path to TPC-H data directory")
+    parser.add_argument(
+        "data_dir",
+        type=str,
+        help="Path or s3:// URL to TPC-H data directory",
+    )
     parser.add_argument(
         "--schema/--no-schema",
         dest="show_schema",
@@ -477,9 +562,12 @@ def main():
     args = parser.parse_args()
 
     data_dir = args.data_dir
-    if not data_dir.exists():
+    if not _is_s3_url(data_dir) and not Path(data_dir).exists():
         print(f"Error: Directory {data_dir} does not exist", file=sys.stderr)
         sys.exit(1)
+
+    root_filesystem, root_path = open_filesystem(data_dir)
+
     if args.output == "text":
         print(f"Inspecting {data_dir}")
 
@@ -522,25 +610,20 @@ def main():
             "web_site",
         ]
 
-    # Collect all table info
+    # Collect all table info (one filesystem for the whole run; paths are fs-relative)
     table_infos: list[tuple[str, TableInfo]] = []
     for table in tables:
-        # Check for partitioned data (directory) or unpartitioned data (single file)
-        table_dir = data_dir / table
-        table_file = data_dir / f"{table}.parquet"
-
-        if table_dir.exists():
-            table_path = table_dir
-        elif table_file.exists():
-            table_path = table_file
-        else:
+        table_path = _table_path_exists(root_filesystem, root_path, table)
+        if table_path is None:
             if args.output == "text":
+                base = data_dir.rstrip("/")
                 print(
-                    f"Warning: {table} not found (checked {table_dir} and {table_file})"
+                    f"Warning: {table} not found (checked {base}/{table} and "
+                    f"{base}/{table}.parquet)"
                 )
             continue
 
-        info = TableInfo.build(table_path)
+        info = TableInfo.build(root_filesystem, table_path)
         table_infos.append((table, info))
 
     if args.output == "text":
@@ -606,8 +689,7 @@ def main():
         # output_data = {table: info.serialize() for table, info in table_infos}
         output_data = metadata.serialize()
         if args.output_file:
-            with open(args.output_file, "w") as f:
-                json.dump(output_data, f, indent=2)
+            write_json_destination(args.output_file, output_data)
         else:
             json.dump(output_data, sys.stdout, indent=2)
             print()  # Add newline after JSON
