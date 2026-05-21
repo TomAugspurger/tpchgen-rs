@@ -36,6 +36,11 @@ LABEL org.opencontainers.image.title="tpchgen" \
       org.opencontainers.image.source="https://github.com/TomAugspurger/tpchgen-rs" \
       org.opencontainers.image.licenses="Apache-2.0"
 
+RUN printf '%s\n' 'APT::Update::Error-Mode "any";' > /etc/apt/apt.conf.d/warnings-as-errors && \
+    printf '%s\n' 'APT::Acquire::Retries "10";' > /etc/apt/apt.conf.d/retries && \
+    printf '%s\n' 'APT::Acquire::https::Timeout "240";' > /etc/apt/apt.conf.d/https-timeout && \
+    printf '%s\n' 'APT::Acquire::http::Timeout "240";' > /etc/apt/apt.conf.d/http-timeout
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     parallel \
