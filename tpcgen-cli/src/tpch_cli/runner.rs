@@ -208,6 +208,7 @@ where
                 num_threads,
                 plan.parquet_compression(),
                 column_encodings,
+                plan.parquet_uncompressed_column_overrides(),
                 progress,
             )
             .await
@@ -228,6 +229,7 @@ where
                 num_threads,
                 plan.parquet_compression(),
                 column_encodings,
+                plan.parquet_uncompressed_column_overrides(),
                 progress,
             )
             .await?;
