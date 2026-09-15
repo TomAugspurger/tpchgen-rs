@@ -41,6 +41,16 @@ impl ParquetVersion {
     }
 }
 
+/// Writer settings passed to [`generate_parquet`].
+#[derive(Debug, Clone, Copy)]
+pub struct ParquetWriteOptions<'a> {
+    pub compression: Compression,
+    pub column_encodings: Option<&'a [(String, Encoding)]>,
+    pub uncompressed_column_overrides: &'a [String],
+    pub disable_dictionary_encoding_columns: &'a [String],
+    pub parquet_version: ParquetVersion,
+}
+
 impl FromStr for ParquetVersion {
     type Err = String;
 
@@ -143,11 +153,7 @@ pub async fn generate_parquet<W, I>(
     writer: W,
     iter_iter: I,
     num_threads: usize,
-    parquet_compression: Compression,
-    column_encodings: Option<&[(String, Encoding)]>,
-    uncompressed_column_overrides: &[String],
-    disable_dictionary_encoding_columns: &[String],
-    parquet_version: ParquetVersion,
+    options: ParquetWriteOptions<'_>,
     progress: ProgressHandle,
 ) -> Result<(), io::Error>
 where
@@ -155,9 +161,8 @@ where
     I: Iterator + 'static,
     I::Item: RecordBatchReader + Send,
 {
-    debug!(
-        "Generating Parquet with {num_threads} threads, using {parquet_compression} compression"
-    );
+    let compression = options.compression;
+    debug!("Generating Parquet with {num_threads} threads, using {compression} compression");
     // Based on example in https://docs.rs/parquet/latest/parquet/arrow/arrow_writer/struct.ArrowColumnWriter.html
     let mut iter_iter = iter_iter.peekable();
     let Some(first_iter) = iter_iter.peek() else {
@@ -177,16 +182,16 @@ where
     );
 
     let mut builder = WriterProperties::builder()
-        .set_compression(parquet_compression)
-        .set_writer_version(parquet_version.to_writer_version());
-    if let Some(encodings) = column_encodings {
+        .set_compression(options.compression)
+        .set_writer_version(options.parquet_version.to_writer_version());
+    if let Some(encodings) = options.column_encodings {
         builder = apply_column_encodings(builder, &parquet_schema, encodings)?;
     }
-    for column in uncompressed_column_overrides {
+    for column in options.uncompressed_column_overrides {
         builder = builder
             .set_column_compression(ColumnPath::from(column.as_str()), Compression::UNCOMPRESSED);
     }
-    for column in disable_dictionary_encoding_columns {
+    for column in options.disable_dictionary_encoding_columns {
         debug!("Disabling dictionary encoding for column {column}");
         builder = builder.set_column_dictionary_enabled(ColumnPath::from(column.as_str()), false);
     }
@@ -366,11 +371,13 @@ mod tests {
             writer,
             vec![region_source(), region_source()].into_iter(),
             1,
-            Compression::UNCOMPRESSED,
-            None,
-            &[],
-            &[],
-            ParquetVersion::V1,
+            ParquetWriteOptions {
+                compression: Compression::UNCOMPRESSED,
+                column_encodings: None,
+                uncompressed_column_overrides: &[],
+                disable_dictionary_encoding_columns: &[],
+                parquet_version: ParquetVersion::V1,
+            },
             progress,
         )
         .await
@@ -392,11 +399,13 @@ mod tests {
             writer,
             vec![region_source()].into_iter(),
             1,
-            Compression::UNCOMPRESSED,
-            encodings,
-            &[],
-            &[],
-            ParquetVersion::V1,
+            ParquetWriteOptions {
+                compression: Compression::UNCOMPRESSED,
+                column_encodings: encodings,
+                uncompressed_column_overrides: &[],
+                disable_dictionary_encoding_columns: &[],
+                parquet_version: ParquetVersion::V1,
+            },
             progress,
         )
         .await
@@ -414,11 +423,13 @@ mod tests {
             writer,
             vec![region_source()].into_iter(),
             1,
-            Compression::SNAPPY,
-            None,
-            uncompressed_columns,
-            &[],
-            ParquetVersion::V1,
+            ParquetWriteOptions {
+                compression: Compression::SNAPPY,
+                column_encodings: None,
+                uncompressed_column_overrides: uncompressed_columns,
+                disable_dictionary_encoding_columns: &[],
+                parquet_version: ParquetVersion::V1,
+            },
             progress,
         )
         .await
@@ -436,11 +447,13 @@ mod tests {
             writer,
             vec![region_source()].into_iter(),
             1,
-            Compression::SNAPPY,
-            None,
-            &[],
-            disable_dictionary_columns,
-            ParquetVersion::V1,
+            ParquetWriteOptions {
+                compression: Compression::SNAPPY,
+                column_encodings: None,
+                uncompressed_column_overrides: &[],
+                disable_dictionary_encoding_columns: disable_dictionary_columns,
+                parquet_version: ParquetVersion::V1,
+            },
             progress,
         )
         .await
@@ -458,11 +471,13 @@ mod tests {
             writer,
             vec![region_source()].into_iter(),
             1,
-            Compression::SNAPPY,
-            None,
-            &[],
-            &[],
-            parquet_version,
+            ParquetWriteOptions {
+                compression: Compression::SNAPPY,
+                column_encodings: None,
+                uncompressed_column_overrides: &[],
+                disable_dictionary_encoding_columns: &[],
+                parquet_version,
+            },
             progress,
         )
         .await

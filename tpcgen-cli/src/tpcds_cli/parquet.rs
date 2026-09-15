@@ -558,11 +558,13 @@ impl Parquet {
             writer,
             sources,
             num_threads,
-            self.compression,
-            column_encodings.as_deref(),
-            &[],
-            &[],
-            crate::parquet::ParquetVersion::default(),
+            crate::parquet::ParquetWriteOptions {
+                compression: self.compression,
+                column_encodings: column_encodings.as_deref(),
+                uncompressed_column_overrides: &[],
+                disable_dictionary_encoding_columns: &[],
+                parquet_version: crate::parquet::ParquetVersion::default(),
+            },
             progress.clone(),
         )
         .await?;
