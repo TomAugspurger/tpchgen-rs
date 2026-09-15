@@ -2,6 +2,7 @@ use super::test_helpers::{
     expect_column_compression, expect_column_encoding, expect_column_encoding_absent,
     expect_parquet_file_version, expect_row_group_sizes, RowGroups,
 };
+use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatchReader;
 use assert_cmd::cargo::cargo_bin_cmd;
 use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
@@ -53,6 +54,37 @@ fn test_tpcgen_cli_tpch_command_forms() {
             form.join(" ")
         );
     }
+}
+
+#[test]
+fn test_tpcgen_cli_tpch_parquet_decimal_column_type_f64() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("customer")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--decimal-column-type")
+        .arg("f64")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("customer.parquet");
+    let file = File::open(&path).expect("open parquet");
+    let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+        .expect("parquet reader")
+        .build()
+        .expect("build reader");
+    let schema = reader.schema();
+    let field = schema
+        .field_with_name("c_acctbal")
+        .expect("c_acctbal field");
+    assert_eq!(field.data_type(), &DataType::Float64);
 }
 
 #[test]
