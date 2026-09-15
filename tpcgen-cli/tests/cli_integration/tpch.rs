@@ -1,5 +1,6 @@
 use super::test_helpers::{
-    expect_column_compression, expect_column_encoding, expect_row_group_sizes, RowGroups,
+    expect_column_compression, expect_column_encoding, expect_column_encoding_absent,
+    expect_row_group_sizes, RowGroups,
 };
 use arrow::record_batch::RecordBatchReader;
 use assert_cmd::cargo::cargo_bin_cmd;
@@ -66,6 +67,57 @@ fn test_tpcgen_cli_tpch_command_forms() {
             expected_file,
             form.join(" ")
         );
+    }
+}
+
+#[test]
+fn test_tpcgen_cli_tpch_parquet_disable_dictionary_encoding() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("region")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--disable-dictionary-encoding")
+        .arg("r_name")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("region.parquet");
+    expect_column_encoding_absent(&path, "r_name", Encoding::PLAIN_DICTIONARY);
+    expect_column_encoding_absent(&path, "r_name", Encoding::RLE_DICTIONARY);
+}
+
+/// The flag accepts space-separated values, not just the comma-delimited
+/// form, matching the pre-upstream fork's ergonomics.
+#[test]
+fn test_tpcgen_cli_tpch_parquet_disable_dictionary_encoding_space_separated() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("region")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--disable-dictionary-encoding")
+        .arg("r_name")
+        .arg("r_comment")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("region.parquet");
+    for column in ["r_name", "r_comment"] {
+        expect_column_encoding_absent(&path, column, Encoding::PLAIN_DICTIONARY);
+        expect_column_encoding_absent(&path, column, Encoding::RLE_DICTIONARY);
     }
 }
 

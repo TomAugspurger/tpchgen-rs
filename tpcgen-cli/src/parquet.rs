@@ -101,6 +101,7 @@ pub async fn generate_parquet<W, I>(
     parquet_compression: Compression,
     column_encodings: Option<&[(String, Encoding)]>,
     uncompressed_column_overrides: &[String],
+    disable_dictionary_encoding_columns: &[String],
     progress: ProgressHandle,
 ) -> Result<(), io::Error>
 where
@@ -136,6 +137,10 @@ where
     for column in uncompressed_column_overrides {
         builder = builder
             .set_column_compression(ColumnPath::from(column.as_str()), Compression::UNCOMPRESSED);
+    }
+    for column in disable_dictionary_encoding_columns {
+        debug!("Disabling dictionary encoding for column {column}");
+        builder = builder.set_column_dictionary_enabled(ColumnPath::from(column.as_str()), false);
     }
     let mut writer_properties = builder.build();
     // Embed the Arrow schema in the Parquet metadata (as ArrowWriter does) so
@@ -316,6 +321,7 @@ mod tests {
             Compression::UNCOMPRESSED,
             None,
             &[],
+            &[],
             progress,
         )
         .await
@@ -340,6 +346,7 @@ mod tests {
             Compression::UNCOMPRESSED,
             encodings,
             &[],
+            &[],
             progress,
         )
         .await
@@ -360,6 +367,28 @@ mod tests {
             Compression::SNAPPY,
             None,
             uncompressed_columns,
+            &[],
+            progress,
+        )
+        .await
+    }
+
+    async fn write_region_with_disabled_dictionary(
+        disable_dictionary_columns: &[String],
+        output_path: &std::path::Path,
+    ) -> io::Result<()> {
+        let writer = BufWriter::new(File::create(output_path).unwrap());
+        let tracker = Arc::new(CountingProgress::default());
+        let progress: Arc<dyn ProgressTracker> = tracker;
+        let progress = progress.register("region", 1);
+        generate_parquet(
+            writer,
+            vec![region_source()].into_iter(),
+            1,
+            Compression::SNAPPY,
+            None,
+            &[],
+            disable_dictionary_columns,
             progress,
         )
         .await
@@ -384,6 +413,29 @@ mod tests {
             .find(|col| col.column_path().string() == "r_name")
             .expect("r_name column");
         assert_eq!(name_column.compression(), Compression::UNCOMPRESSED);
+    }
+
+    #[tokio::test]
+    async fn disable_dictionary_encoding_columns_disable_dictionary() {
+        let output_dir = tempfile::tempdir().unwrap();
+        let output_path = output_dir.path().join("no_dict.parquet");
+        write_region_with_disabled_dictionary(&[String::from("r_name")], &output_path)
+            .await
+            .unwrap();
+
+        let file = File::open(&output_path).unwrap();
+        let mut metadata_reader = parquet::file::metadata::ParquetMetaDataReader::new();
+        metadata_reader.try_parse(&file).unwrap();
+        let metadata = metadata_reader.finish().unwrap();
+        let row_group = metadata.row_groups().first().expect("row group");
+        let name_column = row_group
+            .columns()
+            .iter()
+            .find(|col| col.column_path().string() == "r_name")
+            .expect("r_name column");
+        let encodings: Vec<Encoding> = name_column.encodings().collect();
+        assert!(!encodings.contains(&Encoding::PLAIN_DICTIONARY));
+        assert!(!encodings.contains(&Encoding::RLE_DICTIONARY));
     }
 
     #[tokio::test]

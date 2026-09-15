@@ -202,6 +202,8 @@ pub struct GeneratorConfig {
     pub parquet_column_encodings: Option<Vec<(String, Encoding)>>,
     /// Columns that should use UNCOMPRESSED block compression
     pub parquet_uncompressed_column_overrides: Vec<String>,
+    /// Columns that should not use dictionary encoding
+    pub parquet_disable_dictionary_encoding_columns: Vec<String>,
     /// Target row group size in bytes for Parquet files
     pub parquet_row_group_bytes: i64,
     /// Number of partitions to generate (if None, generates a single file per table)
@@ -225,6 +227,7 @@ impl Default for GeneratorConfig {
             parquet_compression: Compression::SNAPPY,
             parquet_column_encodings: None,
             parquet_uncompressed_column_overrides: Vec::new(),
+            parquet_disable_dictionary_encoding_columns: Vec::new(),
             parquet_row_group_bytes: DEFAULT_PARQUET_ROW_GROUP_BYTES,
             parts: None,
             part: None,
@@ -344,6 +347,8 @@ impl TpchGenerator {
                 compression: config.parquet_compression,
                 column_encodings: config.parquet_column_encodings,
                 uncompressed_column_overrides: config.parquet_uncompressed_column_overrides,
+                disable_dictionary_encoding_columns: config
+                    .parquet_disable_dictionary_encoding_columns,
             },
             config.parquet_row_group_bytes,
             config.stdout,
@@ -441,6 +446,15 @@ impl TpchGeneratorBuilder {
     /// Set columns that should use UNCOMPRESSED block compression.
     pub fn with_parquet_uncompressed_column_overrides(mut self, columns: Vec<String>) -> Self {
         self.config.parquet_uncompressed_column_overrides = columns;
+        self
+    }
+
+    /// Set columns that should not use dictionary encoding.
+    pub fn with_parquet_disable_dictionary_encoding_columns(
+        mut self,
+        columns: Vec<String>,
+    ) -> Self {
+        self.config.parquet_disable_dictionary_encoding_columns = columns;
         self
     }
 
