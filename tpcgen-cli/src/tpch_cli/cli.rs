@@ -276,6 +276,13 @@ struct ParquetArgs {
     /// Example: `--uncompressed-column-overrides=l_comment,l_shipinstruct`
     #[arg(long, value_delimiter = ',')]
     uncompressed_column_overrides: Vec<String>,
+    /// Disable dictionary encoding for specific columns.
+    ///
+    /// Format: comma-separated list of column names.
+    ///
+    /// Example: `--disable-dictionary-encoding=c_name,l_comment`
+    #[arg(long = "disable-dictionary-encoding", value_delimiter = ',')]
+    disable_dictionary_encoding_columns: Vec<String>,
 }
 
 /// Parse a delimiter string, handling escape sequences.
@@ -400,6 +407,9 @@ impl ParquetArgs {
             .with_parquet_row_group_bytes(self.row_group_bytes)
             .with_parquet_column_encodings(self.column_encoding)
             .with_parquet_uncompressed_column_overrides(self.uncompressed_column_overrides)
+            .with_parquet_disable_dictionary_encoding_columns(
+                self.disable_dictionary_encoding_columns,
+            )
             .build()
             .generate()
             .await

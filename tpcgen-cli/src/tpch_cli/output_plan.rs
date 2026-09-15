@@ -41,6 +41,7 @@ pub struct ParquetWriterOptions {
     pub compression: Compression,
     pub column_encodings: Option<Vec<(String, Encoding)>>,
     pub uncompressed_column_overrides: Vec<String>,
+    pub disable_dictionary_encoding_columns: Vec<String>,
 }
 
 impl Default for ParquetWriterOptions {
@@ -49,6 +50,7 @@ impl Default for ParquetWriterOptions {
             compression: Compression::SNAPPY,
             column_encodings: None,
             uncompressed_column_overrides: Vec::new(),
+            disable_dictionary_encoding_columns: Vec::new(),
         }
     }
 }
@@ -124,6 +126,10 @@ impl OutputPlan {
 
     pub fn parquet_uncompressed_column_overrides(&self) -> &[String] {
         &self.parquet.uncompressed_column_overrides
+    }
+
+    pub fn parquet_disable_dictionary_encoding_columns(&self) -> &[String] {
+        &self.parquet.disable_dictionary_encoding_columns
     }
 
     /// Return the number of chunks part(ition) count (the number of data chunks
