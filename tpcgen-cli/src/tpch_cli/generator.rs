@@ -4,6 +4,7 @@ use super::plan::DEFAULT_PARQUET_ROW_GROUP_BYTES;
 use super::runner::PlanRunner;
 use super::statistics::WriteStatistics;
 use crate::parquet::IntoSize;
+use crate::parquet::ParquetVersion;
 use crate::progress::{no_op_progress_tracker, ProgressTracker};
 pub use ::parquet::basic::{Compression, Encoding};
 use arrow::datatypes::SchemaRef;
@@ -204,6 +205,8 @@ pub struct GeneratorConfig {
     pub parquet_uncompressed_column_overrides: Vec<String>,
     /// Columns that should not use dictionary encoding
     pub parquet_disable_dictionary_encoding_columns: Vec<String>,
+    /// Parquet format version to write
+    pub parquet_version: ParquetVersion,
     /// Target row group size in bytes for Parquet files
     pub parquet_row_group_bytes: i64,
     /// Number of partitions to generate (if None, generates a single file per table)
@@ -228,6 +231,7 @@ impl Default for GeneratorConfig {
             parquet_column_encodings: None,
             parquet_uncompressed_column_overrides: Vec::new(),
             parquet_disable_dictionary_encoding_columns: Vec::new(),
+            parquet_version: ParquetVersion::default(),
             parquet_row_group_bytes: DEFAULT_PARQUET_ROW_GROUP_BYTES,
             parts: None,
             part: None,
@@ -349,6 +353,7 @@ impl TpchGenerator {
                 uncompressed_column_overrides: config.parquet_uncompressed_column_overrides,
                 disable_dictionary_encoding_columns: config
                     .parquet_disable_dictionary_encoding_columns,
+                parquet_version: config.parquet_version,
             },
             config.parquet_row_group_bytes,
             config.stdout,
@@ -455,6 +460,12 @@ impl TpchGeneratorBuilder {
         columns: Vec<String>,
     ) -> Self {
         self.config.parquet_disable_dictionary_encoding_columns = columns;
+        self
+    }
+
+    /// Set the Parquet format version to write (default: v1).
+    pub fn with_parquet_version(mut self, version: ParquetVersion) -> Self {
+        self.config.parquet_version = version;
         self
     }
 

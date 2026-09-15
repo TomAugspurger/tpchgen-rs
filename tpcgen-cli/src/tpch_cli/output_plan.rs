@@ -2,6 +2,7 @@
 //! * [`OutputPlan`]: an output file that will be generated
 //! * [`OutputPlanGenerator`]: plans the output files to be generated
 
+use crate::parquet::ParquetVersion;
 use crate::tpch_cli::plan::GenerationPlan;
 use crate::tpch_cli::{OutputFormat, Table};
 use log::debug;
@@ -42,6 +43,7 @@ pub struct ParquetWriterOptions {
     pub column_encodings: Option<Vec<(String, Encoding)>>,
     pub uncompressed_column_overrides: Vec<String>,
     pub disable_dictionary_encoding_columns: Vec<String>,
+    pub parquet_version: ParquetVersion,
 }
 
 impl Default for ParquetWriterOptions {
@@ -51,6 +53,7 @@ impl Default for ParquetWriterOptions {
             column_encodings: None,
             uncompressed_column_overrides: Vec::new(),
             disable_dictionary_encoding_columns: Vec::new(),
+            parquet_version: ParquetVersion::default(),
         }
     }
 }
@@ -130,6 +133,10 @@ impl OutputPlan {
 
     pub fn parquet_disable_dictionary_encoding_columns(&self) -> &[String] {
         &self.parquet.disable_dictionary_encoding_columns
+    }
+
+    pub fn parquet_version(&self) -> ParquetVersion {
+        self.parquet.parquet_version
     }
 
     /// Return the number of chunks part(ition) count (the number of data chunks

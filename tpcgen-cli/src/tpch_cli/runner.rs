@@ -206,10 +206,14 @@ where
                 writer,
                 sources,
                 num_threads,
-                plan.parquet_compression(),
-                column_encodings,
-                plan.parquet_uncompressed_column_overrides(),
-                plan.parquet_disable_dictionary_encoding_columns(),
+                crate::parquet::WriterPropertyOptions {
+                    compression: plan.parquet_compression(),
+                    column_encodings,
+                    uncompressed_column_overrides: plan.parquet_uncompressed_column_overrides(),
+                    disable_dictionary_encoding_columns: plan
+                        .parquet_disable_dictionary_encoding_columns(),
+                    parquet_version: plan.parquet_version(),
+                },
                 progress,
             )
             .await
@@ -228,10 +232,14 @@ where
                 writer,
                 sources,
                 num_threads,
-                plan.parquet_compression(),
-                column_encodings,
-                plan.parquet_uncompressed_column_overrides(),
-                plan.parquet_disable_dictionary_encoding_columns(),
+                crate::parquet::WriterPropertyOptions {
+                    compression: plan.parquet_compression(),
+                    column_encodings,
+                    uncompressed_column_overrides: plan.parquet_uncompressed_column_overrides(),
+                    disable_dictionary_encoding_columns: plan
+                        .parquet_disable_dictionary_encoding_columns(),
+                    parquet_version: plan.parquet_version(),
+                },
                 progress,
             )
             .await?;
