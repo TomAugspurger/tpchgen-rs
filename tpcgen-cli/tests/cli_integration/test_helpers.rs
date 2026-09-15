@@ -1,4 +1,4 @@
-use parquet::basic::Encoding;
+use parquet::basic::{Compression, Encoding};
 use parquet::file::metadata::ParquetMetaDataReader;
 use std::fs::File;
 use std::path::Path;
@@ -60,6 +60,32 @@ pub(crate) fn expect_column_encoding(path: &Path, column: &str, expected: Encodi
                 assert!(
                     encodings.contains(&expected),
                     "expected {column} to use {expected:?} in row group {row_group_idx}, encodings: {encodings:?}"
+                );
+            }
+        }
+    }
+    assert!(
+        found_in_any_row_group,
+        "column {column} not found in {}",
+        path.display()
+    );
+}
+
+/// Asserts `column` uses `expected` block compression in every row group.
+pub(crate) fn expect_column_compression(path: &Path, column: &str, expected: Compression) {
+    let file = File::open(path).expect("Failed to open parquet file");
+    let mut metadata_reader = ParquetMetaDataReader::new();
+    metadata_reader.try_parse(&file).unwrap();
+    let metadata = metadata_reader.finish().unwrap();
+    let mut found_in_any_row_group = false;
+    for (row_group_idx, row_group) in metadata.row_groups().iter().enumerate() {
+        for col in row_group.columns() {
+            if col.column_path().string() == column {
+                found_in_any_row_group = true;
+                assert_eq!(
+                    col.compression(),
+                    expected,
+                    "expected {column} to use {expected:?} in row group {row_group_idx}"
                 );
             }
         }

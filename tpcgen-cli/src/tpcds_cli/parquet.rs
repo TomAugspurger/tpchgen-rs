@@ -556,6 +556,7 @@ impl Parquet {
             num_threads,
             self.compression,
             column_encodings.as_deref(),
+            &[],
             progress.clone(),
         )
         .await?;

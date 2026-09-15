@@ -9,7 +9,7 @@ use parquet::arrow::{add_encoded_arrow_schema_to_metadata, ArrowSchemaConverter}
 use parquet::basic::{Compression, Encoding};
 use parquet::file::properties::{WriterProperties, WriterPropertiesBuilder, DEFAULT_COERCE_TYPES};
 use parquet::file::writer::SerializedFileWriter;
-use parquet::schema::types::SchemaDescPtr;
+use parquet::schema::types::{ColumnPath, SchemaDescPtr};
 use std::io;
 use std::io::Write;
 use std::str::FromStr;
@@ -100,6 +100,7 @@ pub async fn generate_parquet<W, I>(
     num_threads: usize,
     parquet_compression: Compression,
     column_encodings: Option<&[(String, Encoding)]>,
+    uncompressed_column_overrides: &[String],
     progress: ProgressHandle,
 ) -> Result<(), io::Error>
 where
@@ -131,6 +132,10 @@ where
     let mut builder = WriterProperties::builder().set_compression(parquet_compression);
     if let Some(encodings) = column_encodings {
         builder = apply_column_encodings(builder, &parquet_schema, encodings)?;
+    }
+    for column in uncompressed_column_overrides {
+        builder = builder
+            .set_column_compression(ColumnPath::from(column.as_str()), Compression::UNCOMPRESSED);
     }
     let mut writer_properties = builder.build();
     // Embed the Arrow schema in the Parquet metadata (as ArrowWriter does) so
@@ -310,6 +315,7 @@ mod tests {
             1,
             Compression::UNCOMPRESSED,
             None,
+            &[],
             progress,
         )
         .await
@@ -333,9 +339,51 @@ mod tests {
             1,
             Compression::UNCOMPRESSED,
             encodings,
+            &[],
             progress,
         )
         .await
+    }
+
+    async fn write_region_with_uncompressed_columns(
+        uncompressed_columns: &[String],
+        output_path: &std::path::Path,
+    ) -> io::Result<()> {
+        let writer = BufWriter::new(File::create(output_path).unwrap());
+        let tracker = Arc::new(CountingProgress::default());
+        let progress: Arc<dyn ProgressTracker> = tracker;
+        let progress = progress.register("region", 1);
+        generate_parquet(
+            writer,
+            vec![region_source()].into_iter(),
+            1,
+            Compression::SNAPPY,
+            None,
+            uncompressed_columns,
+            progress,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn uncompressed_column_overrides_set_column_compression() {
+        let output_dir = tempfile::tempdir().unwrap();
+        let output_path = output_dir.path().join("uncompressed.parquet");
+        write_region_with_uncompressed_columns(&[String::from("r_name")], &output_path)
+            .await
+            .unwrap();
+
+        let file = File::open(&output_path).unwrap();
+        let mut metadata_reader = parquet::file::metadata::ParquetMetaDataReader::new();
+        metadata_reader.try_parse(&file).unwrap();
+        let metadata = metadata_reader.finish().unwrap();
+        let row_group = metadata.row_groups().first().expect("row group");
+        let name_column = row_group
+            .columns()
+            .iter()
+            .find(|col| col.column_path().string() == "r_name")
+            .expect("r_name column");
+        assert_eq!(name_column.compression(), Compression::UNCOMPRESSED);
     }
 
     #[tokio::test]

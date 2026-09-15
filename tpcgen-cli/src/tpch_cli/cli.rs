@@ -274,6 +274,13 @@ struct ParquetArgs {
     /// through this flag, and BIT_PACKED is not supported for writing.
     #[arg(long, value_delimiter = ',', value_parser = parse_column_encoding_pair)]
     column_encoding: Option<Vec<(String, Encoding)>>,
+    /// Columns that should use UNCOMPRESSED block compression.
+    ///
+    /// Format: comma or space separated list of column names.
+    ///
+    /// Example: `--uncompressed-column-overrides=l_comment,l_shipinstruct`
+    #[arg(short, long, num_args = 0.., value_delimiter = ',')]
+    uncompressed_column_overrides: Vec<String>,
 }
 
 /// Parse a delimiter string, handling escape sequences.
@@ -411,6 +418,7 @@ impl ParquetArgs {
             .with_parquet_compression(self.compression)
             .with_parquet_row_group_bytes(self.row_group_bytes)
             .with_parquet_column_encodings(self.column_encoding)
+            .with_parquet_uncompressed_column_overrides(self.uncompressed_column_overrides)
             .build()
             .generate()
             .await

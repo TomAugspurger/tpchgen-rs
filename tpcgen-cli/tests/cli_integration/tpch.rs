@@ -1,7 +1,10 @@
-use super::test_helpers::{expect_column_encoding, expect_row_group_sizes, RowGroups};
+use super::test_helpers::{
+    expect_column_compression, expect_column_encoding, expect_row_group_sizes, RowGroups,
+};
 use arrow::record_batch::RecordBatchReader;
 use assert_cmd::cargo::cargo_bin_cmd;
 use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
+use parquet::basic::Compression;
 use parquet::basic::Encoding;
 use std::fs;
 use std::fs::File;
@@ -63,6 +66,78 @@ fn test_tpcgen_cli_tpch_command_forms() {
             expected_file,
             form.join(" ")
         );
+    }
+}
+
+#[test]
+fn test_tpcgen_cli_tpch_parquet_uncompressed_column_overrides() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("region")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--uncompressed-column-overrides")
+        .arg("r_name")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("region.parquet");
+    expect_column_compression(&path, "r_name", Compression::UNCOMPRESSED);
+}
+
+/// `-u` is the short alias for `--uncompressed-column-overrides`.
+#[test]
+fn test_tpcgen_cli_tpch_parquet_uncompressed_column_overrides_short_alias() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("region")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("-u")
+        .arg("r_name")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("region.parquet");
+    expect_column_compression(&path, "r_name", Compression::UNCOMPRESSED);
+}
+
+/// The flag accepts space-separated values, not just the comma-delimited
+/// form, matching the pre-upstream fork's ergonomics.
+#[test]
+fn test_tpcgen_cli_tpch_parquet_uncompressed_column_overrides_space_separated() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("region")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--uncompressed-column-overrides")
+        .arg("r_name")
+        .arg("r_comment")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("region.parquet");
+    for column in ["r_name", "r_comment"] {
+        expect_column_compression(&path, column, Compression::UNCOMPRESSED);
     }
 }
 
