@@ -1,7 +1,8 @@
 use super::test_helpers::{
-    expect_column_compression, expect_column_encoding, expect_column_encoding_absent,
-    expect_parquet_file_version, expect_row_group_sizes, RowGroups,
+    expect_column_arrow_type, expect_column_compression, expect_column_encoding,
+    expect_column_encoding_absent, expect_parquet_file_version, expect_row_group_sizes, RowGroups,
 };
+use arrow::datatypes::{DataType, TimeUnit};
 use arrow::record_batch::RecordBatchReader;
 use assert_cmd::cargo::cargo_bin_cmd;
 use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
@@ -68,6 +69,147 @@ fn test_tpcgen_cli_tpch_command_forms() {
             form.join(" ")
         );
     }
+}
+
+#[test]
+fn test_tpcgen_cli_tpch_parquet_decimal_column_type_f64() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("customer")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--decimal-column-type")
+        .arg("f64")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("customer.parquet");
+    let file = File::open(&path).expect("open parquet");
+    let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+        .expect("parquet reader")
+        .build()
+        .expect("build reader");
+    let schema = reader.schema();
+    let field = schema
+        .field_with_name("c_acctbal")
+        .expect("c_acctbal field");
+    assert_eq!(field.data_type(), &DataType::Float64);
+}
+
+#[test]
+fn test_tpcgen_cli_tpch_parquet_date_column_type_timestamp_ms() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("lineitem")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--date-column-type")
+        .arg("timestamp_ms")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("lineitem.parquet");
+    expect_column_arrow_type(
+        &path,
+        "l_shipdate",
+        &DataType::Timestamp(TimeUnit::Millisecond, None),
+    );
+}
+
+#[test]
+fn test_tpcgen_cli_tpch_parquet_nationkey_type_i32() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("customer")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--nationkey-type")
+        .arg("i32")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("customer.parquet");
+    expect_column_arrow_type(&path, "c_nationkey", &DataType::Int32);
+}
+
+#[test]
+fn test_tpcgen_cli_tpch_parquet_regionkey_type_i32() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("nation")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--regionkey-type")
+        .arg("i32")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("nation.parquet");
+    expect_column_arrow_type(&path, "n_regionkey", &DataType::Int32);
+}
+
+/// Without any column-type flag, each column keeps the type TPC-H declares
+/// for it. Guards against a configured schema leaking into the default path.
+#[test]
+fn test_tpcgen_cli_tpch_parquet_default_column_types() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("customer,lineitem,nation")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .assert()
+        .success();
+
+    expect_column_arrow_type(
+        &temp_dir.path().join("customer.parquet"),
+        "c_acctbal",
+        &DataType::Decimal128(15, 2),
+    );
+    expect_column_arrow_type(
+        &temp_dir.path().join("customer.parquet"),
+        "c_nationkey",
+        &DataType::Int64,
+    );
+    expect_column_arrow_type(
+        &temp_dir.path().join("lineitem.parquet"),
+        "l_shipdate",
+        &DataType::Date32,
+    );
+    expect_column_arrow_type(
+        &temp_dir.path().join("nation.parquet"),
+        "n_regionkey",
+        &DataType::Int64,
+    );
 }
 
 #[test]

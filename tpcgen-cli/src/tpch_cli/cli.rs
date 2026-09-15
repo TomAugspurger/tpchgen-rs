@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 #[cfg(feature = "indicatif-progress")]
 use std::sync::Arc;
+use tpchgen_arrow::{ColumnTypeConfig, DateColumnType, DecimalColumnType, KeyColumnType};
 
 #[derive(Parser)]
 #[command(name = "tpchgen")]
@@ -297,6 +298,46 @@ struct ParquetArgs {
     /// Valid values: v1 (default), v2
     #[arg(long, default_value = "v1", value_parser = clap::value_parser!(ParquetVersion))]
     parquet_version: ParquetVersion,
+    /// Type to use for decimal/monetary columns.
+    ///
+    /// Valid values: decimal128 (default), f64
+    #[arg(
+        long,
+        default_value = "decimal128",
+        value_parser = clap::value_parser!(DecimalColumnType),
+        help_heading = "TPC-H column types"
+    )]
+    decimal_column_type: DecimalColumnType,
+    /// Type to use for date columns.
+    ///
+    /// Valid values: date32 (default), timestamp_ms
+    #[arg(
+        long,
+        default_value = "date32",
+        value_parser = clap::value_parser!(DateColumnType),
+        help_heading = "TPC-H column types"
+    )]
+    date_column_type: DateColumnType,
+    /// Type to use for nationkey columns.
+    ///
+    /// Valid values: i64 (default), i32
+    #[arg(
+        long,
+        default_value = "i64",
+        value_parser = clap::value_parser!(KeyColumnType),
+        help_heading = "TPC-H column types"
+    )]
+    nationkey_type: KeyColumnType,
+    /// Type to use for regionkey columns.
+    ///
+    /// Valid values: i64 (default), i32
+    #[arg(
+        long,
+        default_value = "i64",
+        value_parser = clap::value_parser!(KeyColumnType),
+        help_heading = "TPC-H column types"
+    )]
+    regionkey_type: KeyColumnType,
 }
 
 /// Parse a delimiter string, handling escape sequences.
@@ -439,6 +480,12 @@ impl ParquetArgs {
                 self.disable_dictionary_encoding_columns,
             )
             .with_parquet_version(self.parquet_version)
+            .with_column_type_config(ColumnTypeConfig {
+                decimal_type: self.decimal_column_type,
+                date_type: self.date_column_type,
+                nationkey_type: self.nationkey_type,
+                regionkey_type: self.regionkey_type,
+            })
             .build()
             .generate()
             .await

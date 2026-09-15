@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::path::PathBuf;
+use tpchgen_arrow::ColumnTypeConfig;
 
 /// Where a partition will be output
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +45,7 @@ pub struct ParquetWriterOptions {
     pub uncompressed_column_overrides: Vec<String>,
     pub disable_dictionary_encoding_columns: Vec<String>,
     pub parquet_version: ParquetVersion,
+    pub column_type_config: ColumnTypeConfig,
 }
 
 impl Default for ParquetWriterOptions {
@@ -54,6 +56,7 @@ impl Default for ParquetWriterOptions {
             uncompressed_column_overrides: Vec::new(),
             disable_dictionary_encoding_columns: Vec::new(),
             parquet_version: ParquetVersion::default(),
+            column_type_config: ColumnTypeConfig::default(),
         }
     }
 }
@@ -137,6 +140,10 @@ impl OutputPlan {
 
     pub fn parquet_version(&self) -> ParquetVersion {
         self.parquet.parquet_version
+    }
+
+    pub fn column_type_config(&self) -> ColumnTypeConfig {
+        self.parquet.column_type_config
     }
 
     /// Return the number of chunks part(ition) count (the number of data chunks

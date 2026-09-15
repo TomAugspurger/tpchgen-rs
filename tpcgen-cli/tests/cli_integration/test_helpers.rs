@@ -1,7 +1,29 @@
+use arrow::array::RecordBatchReader;
+use arrow::datatypes::DataType;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::basic::{Compression, Encoding};
 use parquet::file::metadata::ParquetMetaDataReader;
 use std::fs::File;
 use std::path::Path;
+
+/// Asserts `column` has Arrow type `expected` in the Parquet file schema.
+pub(crate) fn expect_column_arrow_type(path: &Path, column: &str, expected: &DataType) {
+    let file = File::open(path).expect("Failed to open parquet file");
+    let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+        .expect("parquet reader")
+        .build()
+        .expect("build reader");
+    let schema = reader.schema();
+    let field = schema
+        .field_with_name(column)
+        .expect("column not found in schema");
+    assert_eq!(
+        field.data_type(),
+        expected,
+        "unexpected Arrow type for {column} in {}",
+        path.display()
+    );
+}
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct RowGroups {

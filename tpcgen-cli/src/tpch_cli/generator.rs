@@ -19,8 +19,8 @@ use std::time::Instant;
 use tpchgen::distribution::Distributions;
 use tpchgen::text::TextPool;
 use tpchgen_arrow::{
-    CustomerArrow, LineItemArrow, NationArrow, OrderArrow, PartArrow, PartSuppArrow, RegionArrow,
-    SupplierArrow,
+    ColumnTypeConfig, CustomerArrow, LineItemArrow, NationArrow, OrderArrow, PartArrow,
+    PartSuppArrow, RegionArrow, SupplierArrow,
 };
 
 /// Wrapper around a buffer writer that counts the number of buffers and bytes written
@@ -207,6 +207,8 @@ pub struct GeneratorConfig {
     pub parquet_disable_dictionary_encoding_columns: Vec<String>,
     /// Parquet format version to write
     pub parquet_version: ParquetVersion,
+    /// Arrow column type configuration for Parquet output
+    pub column_type_config: ColumnTypeConfig,
     /// Target row group size in bytes for Parquet files
     pub parquet_row_group_bytes: i64,
     /// Number of partitions to generate (if None, generates a single file per table)
@@ -232,6 +234,7 @@ impl Default for GeneratorConfig {
             parquet_uncompressed_column_overrides: Vec::new(),
             parquet_disable_dictionary_encoding_columns: Vec::new(),
             parquet_version: ParquetVersion::default(),
+            column_type_config: ColumnTypeConfig::default(),
             parquet_row_group_bytes: DEFAULT_PARQUET_ROW_GROUP_BYTES,
             parts: None,
             part: None,
@@ -354,6 +357,7 @@ impl TpchGenerator {
                 disable_dictionary_encoding_columns: config
                     .parquet_disable_dictionary_encoding_columns,
                 parquet_version: config.parquet_version,
+                column_type_config: config.column_type_config,
             },
             config.parquet_row_group_bytes,
             config.stdout,
@@ -466,6 +470,12 @@ impl TpchGeneratorBuilder {
     /// Set the Parquet format version to write (default: v1).
     pub fn with_parquet_version(mut self, version: ParquetVersion) -> Self {
         self.config.parquet_version = version;
+        self
+    }
+
+    /// Set Arrow column type configuration for Parquet output.
+    pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        self.config.column_type_config = config;
         self
     }
 
