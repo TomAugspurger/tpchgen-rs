@@ -98,6 +98,19 @@ pub(crate) fn expect_column_encoding(path: &Path, column: &str, expected: Encodi
 }
 
 /// Asserts `column` uses `expected` block compression in every row group.
+pub(crate) fn expect_parquet_file_version(path: &Path, expected: i32) {
+    let file = File::open(path).expect("Failed to open parquet file");
+    let mut metadata_reader = ParquetMetaDataReader::new();
+    metadata_reader.try_parse(&file).unwrap();
+    let metadata = metadata_reader.finish().unwrap();
+    assert_eq!(
+        metadata.file_metadata().version(),
+        expected,
+        "unexpected parquet file version for {}",
+        path.display()
+    );
+}
+
 pub(crate) fn expect_column_compression(path: &Path, column: &str, expected: Compression) {
     let file = File::open(path).expect("Failed to open parquet file");
     let mut metadata_reader = ParquetMetaDataReader::new();

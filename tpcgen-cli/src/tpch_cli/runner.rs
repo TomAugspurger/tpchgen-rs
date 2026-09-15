@@ -210,6 +210,7 @@ where
                 column_encodings,
                 plan.parquet_uncompressed_column_overrides(),
                 plan.parquet_disable_dictionary_encoding_columns(),
+                plan.parquet_version(),
                 progress,
             )
             .await
@@ -232,6 +233,7 @@ where
                 column_encodings,
                 plan.parquet_uncompressed_column_overrides(),
                 plan.parquet_disable_dictionary_encoding_columns(),
+                plan.parquet_version(),
                 progress,
             )
             .await?;

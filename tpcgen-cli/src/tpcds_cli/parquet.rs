@@ -562,6 +562,7 @@ impl Parquet {
             column_encodings.as_deref(),
             &[],
             &[],
+            crate::parquet::ParquetVersion::default(),
             progress.clone(),
         )
         .await?;

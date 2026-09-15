@@ -7,9 +7,12 @@ use log::debug;
 use parquet::arrow::arrow_writer::{compute_leaves, ArrowColumnChunk};
 use parquet::arrow::{add_encoded_arrow_schema_to_metadata, ArrowSchemaConverter};
 use parquet::basic::{Compression, Encoding};
-use parquet::file::properties::{WriterProperties, WriterPropertiesBuilder, DEFAULT_COERCE_TYPES};
+use parquet::file::properties::{
+    WriterProperties, WriterPropertiesBuilder, WriterVersion, DEFAULT_COERCE_TYPES,
+};
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::types::{ColumnPath, SchemaDescPtr};
+use std::fmt;
 use std::io;
 use std::io::Write;
 use std::str::FromStr;
@@ -18,6 +21,48 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::progress::ProgressHandle;
 use crate::tpch_cli::statistics::WriteStatistics;
+
+/// Parquet format version to write.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ParquetVersion {
+    /// Parquet format version 1 (default, broader compatibility)
+    #[default]
+    V1,
+    /// Parquet format version 2 (Data Page V2)
+    V2,
+}
+
+impl ParquetVersion {
+    pub fn to_writer_version(self) -> WriterVersion {
+        match self {
+            ParquetVersion::V1 => WriterVersion::PARQUET_1_0,
+            ParquetVersion::V2 => WriterVersion::PARQUET_2_0,
+        }
+    }
+}
+
+impl FromStr for ParquetVersion {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "v1" | "1" | "1.0" => Ok(ParquetVersion::V1),
+            "v2" | "2" | "2.0" => Ok(ParquetVersion::V2),
+            _ => Err(format!(
+                "Invalid parquet version: {s}. Valid versions are: v1, v2"
+            )),
+        }
+    }
+}
+
+impl fmt::Display for ParquetVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParquetVersion::V1 => write!(f, "v1"),
+            ParquetVersion::V2 => write!(f, "v2"),
+        }
+    }
+}
 
 pub trait IntoSize {
     /// Convert the object into a size
@@ -102,6 +147,7 @@ pub async fn generate_parquet<W, I>(
     column_encodings: Option<&[(String, Encoding)]>,
     uncompressed_column_overrides: &[String],
     disable_dictionary_encoding_columns: &[String],
+    parquet_version: ParquetVersion,
     progress: ProgressHandle,
 ) -> Result<(), io::Error>
 where
@@ -130,7 +176,9 @@ where
             .unwrap(),
     );
 
-    let mut builder = WriterProperties::builder().set_compression(parquet_compression);
+    let mut builder = WriterProperties::builder()
+        .set_compression(parquet_compression)
+        .set_writer_version(parquet_version.to_writer_version());
     if let Some(encodings) = column_encodings {
         builder = apply_column_encodings(builder, &parquet_schema, encodings)?;
     }
@@ -322,6 +370,7 @@ mod tests {
             None,
             &[],
             &[],
+            ParquetVersion::V1,
             progress,
         )
         .await
@@ -347,6 +396,7 @@ mod tests {
             encodings,
             &[],
             &[],
+            ParquetVersion::V1,
             progress,
         )
         .await
@@ -368,6 +418,7 @@ mod tests {
             None,
             uncompressed_columns,
             &[],
+            ParquetVersion::V1,
             progress,
         )
         .await
@@ -389,9 +440,47 @@ mod tests {
             None,
             &[],
             disable_dictionary_columns,
+            ParquetVersion::V1,
             progress,
         )
         .await
+    }
+
+    async fn write_region_with_version(
+        parquet_version: ParquetVersion,
+        output_path: &std::path::Path,
+    ) -> io::Result<()> {
+        let writer = BufWriter::new(File::create(output_path).unwrap());
+        let tracker = Arc::new(CountingProgress::default());
+        let progress: Arc<dyn ProgressTracker> = tracker;
+        let progress = progress.register("region", 1);
+        generate_parquet(
+            writer,
+            vec![region_source()].into_iter(),
+            1,
+            Compression::SNAPPY,
+            None,
+            &[],
+            &[],
+            parquet_version,
+            progress,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn parquet_version_v2_writes_version_2_files() {
+        let output_dir = tempfile::tempdir().unwrap();
+        let output_path = output_dir.path().join("v2.parquet");
+        write_region_with_version(ParquetVersion::V2, &output_path)
+            .await
+            .unwrap();
+
+        let file = File::open(&output_path).unwrap();
+        let mut metadata_reader = parquet::file::metadata::ParquetMetaDataReader::new();
+        metadata_reader.try_parse(&file).unwrap();
+        let metadata = metadata_reader.finish().unwrap();
+        assert_eq!(metadata.file_metadata().version(), 2);
     }
 
     #[tokio::test]

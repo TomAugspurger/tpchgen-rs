@@ -1,6 +1,6 @@
 use super::test_helpers::{
     expect_column_compression, expect_column_encoding, expect_column_encoding_absent,
-    expect_row_group_sizes, RowGroups,
+    expect_parquet_file_version, expect_row_group_sizes, RowGroups,
 };
 use arrow::record_batch::RecordBatchReader;
 use assert_cmd::cargo::cargo_bin_cmd;
@@ -53,6 +53,28 @@ fn test_tpcgen_cli_tpch_command_forms() {
             form.join(" ")
         );
     }
+}
+
+#[test]
+fn test_tpcgen_cli_tpch_parquet_version_v2() {
+    let temp_dir = tempdir().expect("Failed to create temporary directory");
+
+    cargo_bin_cmd!("tpcgen-cli")
+        .args(["tpch", "parquet"])
+        .arg("--scale-factor")
+        .arg("0.001")
+        .arg("--tables")
+        .arg("region")
+        .arg("--output-dir")
+        .arg(temp_dir.path())
+        .arg("--no-progress")
+        .arg("--parquet-version")
+        .arg("v2")
+        .assert()
+        .success();
+
+    let path = temp_dir.path().join("region.parquet");
+    expect_parquet_file_version(&path, 2);
 }
 
 #[test]

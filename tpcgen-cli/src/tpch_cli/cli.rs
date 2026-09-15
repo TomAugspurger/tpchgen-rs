@@ -3,7 +3,7 @@ use super::{
     DEFAULT_PARQUET_ROW_GROUP_BYTES,
 };
 use crate::logging::configure_logging;
-use crate::parquet::parse_column_encoding_pair;
+use crate::parquet::{parse_column_encoding_pair, ParquetVersion};
 #[cfg(feature = "indicatif-progress")]
 use crate::progress::IndicatifProgress;
 use clap::builder::TypedValueParser;
@@ -283,6 +283,15 @@ struct ParquetArgs {
     /// Example: `--disable-dictionary-encoding=c_name,l_comment`
     #[arg(long = "disable-dictionary-encoding", value_delimiter = ',')]
     disable_dictionary_encoding_columns: Vec<String>,
+    /// Parquet format version to write.
+    ///
+    /// Version 1 (default) has broader compatibility. Version 2 uses Data Page V2
+    /// format with improved encodings. Ensure downstream tools support version 2
+    /// before enabling.
+    ///
+    /// Valid values: v1 (default), v2
+    #[arg(long, default_value = "v1", value_parser = clap::value_parser!(ParquetVersion))]
+    parquet_version: ParquetVersion,
 }
 
 /// Parse a delimiter string, handling escape sequences.
@@ -410,6 +419,7 @@ impl ParquetArgs {
             .with_parquet_disable_dictionary_encoding_columns(
                 self.disable_dictionary_encoding_columns,
             )
+            .with_parquet_version(self.parquet_version)
             .build()
             .generate()
             .await
