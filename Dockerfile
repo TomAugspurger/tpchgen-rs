@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build stage for Rust binary
-FROM rust:1.86 AS builder
+FROM rust:1.97 AS builder
 
 # TARGETARCH is automatically set by BuildKit (e.g., amd64, arm64)
 ARG TARGETARCH
