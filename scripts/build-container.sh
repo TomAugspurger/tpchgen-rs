@@ -14,7 +14,7 @@
 #   enroot import docker-archive://tpchgen-cli-arm64.tar
 #
 # To run with Slurm:
-#   srun --container-image=/path/to/tpchgen-cli.sqsh tpchgen-cli -s 10 --format=parquet
+#   srun --container-image=/path/to/tpchgen-cli.sqsh tpchgen-cli parquet -s 10 --output-dir=/output
 
 set -euo pipefail
 
@@ -72,4 +72,4 @@ echo ""
 echo "  3. Run with Slurm:"
 echo "       srun --container-image=/path/to/tpchgen-cli+latest.sqsh \\"
 echo "            --container-mounts=/scratch:/output \\"
-echo "            tpchgen-cli -s 10 --format=parquet --output-dir=/output"
+echo "            tpchgen-cli parquet -s 10 --output-dir=/output"

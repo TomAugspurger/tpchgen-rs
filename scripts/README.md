@@ -100,7 +100,8 @@ The script uses per-table default row group sizes optimized to produce approxima
 | region | 5,000 |
 | supplier | 154,000,000 |
 
-Use `--parquet-row-group-bytes N` to override these defaults with a single value for all tables.
+Use `--row-group-bytes N` to override these defaults with a single value for all tables.
+(`--parquet-row-group-bytes` is kept as an alias for existing callers.)
 
 The script will create a directory structure where each table has its own subdirectory containing the specified number of partitions based on the chosen scale factor. For example:
 

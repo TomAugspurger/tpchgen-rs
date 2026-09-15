@@ -136,6 +136,24 @@ DEFAULT_COLUMN_ENCODINGS = {
   "l_linenumber": PLAIN,
 }
 
+def column_belongs_to_table(column: str, table: str) -> bool:
+    """Return True if a TPC-H column name belongs to the given table."""
+    if table == "partsupp":
+        return column.startswith("ps_")
+    if table == "part":
+        return column.startswith("p_") and not column.startswith("ps_")
+
+    prefixes = {
+        "customer": "c_",
+        "lineitem": "l_",
+        "nation": "n_",
+        "orders": "o_",
+        "region": "r_",
+        "supplier": "s_",
+    }
+    return column.startswith(prefixes[table])
+
+
 DEFAULT_DISABLE_DICTIONARY_ENCODING_COLUMNS = [
   "l_comment",
   "ps_comment",
@@ -226,63 +244,95 @@ def generate_partition(
 
     print(f"  Generating partition {part} of {num_parts} for {table}...")
 
-    # Build the command with optional flags
+    # Build the command with optional flags. Upstream uses format subcommands
+    # (parquet/tbl/csv) rather than --format.
     cmd = [
         "tpchgen-cli",
+        format,
         "-s",
         str(scale),
         "--tables",
         table,
-        f"--format={format}",
         "--output-dir",
         str(temp_dir),
         "--parts",
         str(num_parts),
         "--part",
         str(part),
-        "--parquet-row-group-bytes",
-        str(row_group_bytes),
         "--num-threads",
         "1",
     ]
 
-    # Add uncompressed column overrides unless using upstream compression
-    if not use_upstream_compression and UNCOMPRESSED_COLUMN_OVERRIDES:
-        cmd.append(f"--uncompressed-column-overrides={UNCOMPRESSED_COLUMN_OVERRIDES}")
+    if format == "parquet":
+        cmd.extend(["--row-group-bytes", str(row_group_bytes)])
 
-    # Add column encoding overrides unless using upstream encoding
-    # Use DELTA_LENGTH_BYTE_ARRAY for string columns (better compression than default RLE_DICTIONARY)
-    if not use_upstream_encoding:
-        decimal_columns_with_delta = {"c_acctbal", "l_extendedprice", "o_totalprice", "s_acctbal"}
+        # Add uncompressed column overrides unless using upstream compression.
+        # Filter to columns in the current table; upstream ignores unknown columns
+        # but shorter commands are easier to debug.
+        if not use_upstream_compression and UNCOMPRESSED_COLUMN_OVERRIDES:
+            uncompressed_columns = [
+                col
+                for col in UNCOMPRESSED_COLUMN_OVERRIDES.split(",")
+                if column_belongs_to_table(col, table)
+            ]
+            if uncompressed_columns:
+                cmd.append(
+                    f"--uncompressed-column-overrides={','.join(uncompressed_columns)}"
+                )
 
-        for col, encoding in DEFAULT_COLUMN_ENCODINGS.items():
-            if decimal_column_type == "f64" and col in decimal_columns_with_delta and encoding == DELTA_BINARY_PACKED:
-                encoding = PLAIN
-            elif encoding == DELTA_LENGTH_BYTE_ARRAY and no_delta_length_byte_array:
-                encoding = PLAIN
+        # Add column encoding overrides unless using upstream encoding
+        # Use DELTA_LENGTH_BYTE_ARRAY for string columns (better compression than default RLE_DICTIONARY)
+        if not use_upstream_encoding:
+            decimal_columns_with_delta = {
+                "c_acctbal",
+                "l_extendedprice",
+                "o_totalprice",
+                "s_acctbal",
+            }
 
-            cmd.append(f"--column-encoding={col}={encoding}")
+            for col, encoding in DEFAULT_COLUMN_ENCODINGS.items():
+                if not column_belongs_to_table(col, table):
+                    continue
 
-    # Add disable dictionary encoding columns if specified
-    if not use_upstream_disable_dictionary_encoding:
-        cmd.append(f"--disable-dictionary-encoding={','.join(DEFAULT_DISABLE_DICTIONARY_ENCODING_COLUMNS)}")
+                if (
+                    decimal_column_type == "f64"
+                    and col in decimal_columns_with_delta
+                    and encoding == DELTA_BINARY_PACKED
+                ):
+                    encoding = PLAIN
+                elif encoding == DELTA_LENGTH_BYTE_ARRAY and no_delta_length_byte_array:
+                    encoding = PLAIN
 
-    # Add column type flags
-    cmd.extend(
-        [
-            "--decimal-column-type",
-            decimal_column_type,
-            "--date-column-type",
-            date_column_type,
-            "--nationkey-type",
-            nationkey_type,
-            "--regionkey-type",
-            regionkey_type,
-        ]
-    )
+                cmd.append(f"--column-encoding={col}={encoding}")
 
-    # Add parquet version
-    cmd.extend(["--parquet-version", parquet_version])
+        # Add disable dictionary encoding columns if specified
+        if not use_upstream_disable_dictionary_encoding:
+            disable_dictionary_columns = [
+                col
+                for col in DEFAULT_DISABLE_DICTIONARY_ENCODING_COLUMNS
+                if column_belongs_to_table(col, table)
+            ]
+            if disable_dictionary_columns:
+                cmd.append(
+                    f"--disable-dictionary-encoding={','.join(disable_dictionary_columns)}"
+                )
+
+        # Add column type flags
+        cmd.extend(
+            [
+                "--decimal-column-type",
+                decimal_column_type,
+                "--date-column-type",
+                date_column_type,
+                "--nationkey-type",
+                nationkey_type,
+                "--regionkey-type",
+                regionkey_type,
+            ]
+        )
+
+        # Add parquet version
+        cmd.extend(["--parquet-version", parquet_version])
 
     subprocess.run(cmd, check=True)
 
@@ -377,9 +427,11 @@ Current defaults:
         help=f"Number of parallel jobs (default: number of CPU threads)",
     )
     parser.add_argument(
+        "--row-group-bytes",
         "--parquet-row-group-bytes",
         type=int,
         default=None,
+        dest="row_group_bytes",
         help="Override parquet row group size in bytes for all tables",
     )
     parser.add_argument(
@@ -484,7 +536,7 @@ Current defaults:
                     format=args.format,
                     output_base=output_base,
                     temp_root=temp_root,
-                    parquet_row_group_bytes_override=args.parquet_row_group_bytes,
+                    parquet_row_group_bytes_override=args.row_group_bytes,
                     use_upstream_compression=args.use_upstream_compression,
                     use_upstream_encoding=args.use_upstream_encoding,
                     parquet_version=parquet_version,
