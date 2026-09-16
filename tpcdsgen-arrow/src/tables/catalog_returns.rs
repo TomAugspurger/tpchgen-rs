@@ -18,6 +18,11 @@ pub struct CatalogReturnsArrow {
 }
 
 impl CatalogReturnsArrow {
+    /// Return the schema without initializing a data generator.
+    pub fn schema_ref() -> SchemaRef {
+        Arc::clone(&CATALOG_RETURNS_SCHEMA)
+    }
+
     pub fn new(session: Session) -> Self {
         let row_count = session.get_scaling().get_row_count(Table::CatalogSales);
         Self {
@@ -107,7 +112,7 @@ impl Iterator for CatalogReturnsArrow {
         let mut cr_quantity: Vec<Option<i32>> = Vec::with_capacity(rows.len());
         let mut cr_return_amount: Vec<Option<i128>> = Vec::with_capacity(rows.len());
         let mut cr_return_tax: Vec<Option<i128>> = Vec::with_capacity(rows.len());
-        let mut cr_return_amount_inc_tax: Vec<Option<i128>> = Vec::with_capacity(rows.len());
+        let mut cr_return_amt_inc_tax: Vec<Option<i128>> = Vec::with_capacity(rows.len());
         let mut cr_fee: Vec<Option<i128>> = Vec::with_capacity(rows.len());
         let mut cr_return_ship_cost: Vec<Option<i128>> = Vec::with_capacity(rows.len());
         let mut cr_refunded_cash: Vec<Option<i128>> = Vec::with_capacity(rows.len());
@@ -138,7 +143,7 @@ impl Iterator for CatalogReturnsArrow {
             cr_quantity.push(opt(nbm, 17, p.get_quantity()));
             cr_return_amount.push(opt(nbm, 18, decimal_to_i128(p.get_net_paid())));
             cr_return_tax.push(opt(nbm, 19, decimal_to_i128(p.get_ext_tax())));
-            cr_return_amount_inc_tax.push(opt(
+            cr_return_amt_inc_tax.push(opt(
                 nbm,
                 20,
                 decimal_to_i128(p.get_net_paid_including_tax()),
@@ -176,7 +181,7 @@ impl Iterator for CatalogReturnsArrow {
                 Arc::new(Int32Array::from(cr_quantity)),
                 dec(cr_return_amount),
                 dec(cr_return_tax),
-                dec(cr_return_amount_inc_tax),
+                dec(cr_return_amt_inc_tax),
                 dec(cr_fee),
                 dec(cr_return_ship_cost),
                 dec(cr_refunded_cash),
@@ -216,7 +221,7 @@ fn make_schema(config: &ColumnTypeConfig) -> SchemaRef {
         Field::new("cr_return_quantity", DataType::Int32, true),
         Field::new("cr_return_amount", decimal_type.clone(), true),
         Field::new("cr_return_tax", decimal_type.clone(), true),
-        Field::new("cr_return_amount_inc_tax", decimal_type.clone(), true),
+        Field::new("cr_return_amt_inc_tax", decimal_type.clone(), true),
         Field::new("cr_fee", decimal_type.clone(), true),
         Field::new("cr_return_ship_cost", decimal_type.clone(), true),
         Field::new("cr_refunded_cash", decimal_type.clone(), true),

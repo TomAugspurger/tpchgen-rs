@@ -20,6 +20,11 @@ pub struct CallCenterArrow {
 }
 
 impl CallCenterArrow {
+    /// Return the schema without initializing a data generator.
+    pub fn schema_ref() -> SchemaRef {
+        Arc::clone(&CALL_CENTER_SCHEMA)
+    }
+
     pub fn new(session: Session) -> Self {
         let row_count = session.get_scaling().get_row_count(Table::CallCenter);
         Self {

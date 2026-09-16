@@ -40,6 +40,11 @@ pub struct SupplierArrow {
 }
 
 impl SupplierArrow {
+    /// Return the schema without initializing a data generator.
+    pub fn schema_ref() -> SchemaRef {
+        Arc::clone(&SUPPLIER_SCHEMA)
+    }
+
     pub fn new(generator: SupplierGenerator<'static>) -> Self {
         Self {
             inner: generator.iter(),

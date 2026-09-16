@@ -52,6 +52,11 @@ pub struct NationArrow {
 }
 
 impl NationArrow {
+    /// Return the schema without initializing a data generator.
+    pub fn schema_ref() -> SchemaRef {
+        Arc::clone(&NATION_SCHEMA)
+    }
+
     pub fn new(generator: NationGenerator<'static>) -> Self {
         Self {
             inner: generator.iter(),

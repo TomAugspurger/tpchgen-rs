@@ -53,6 +53,11 @@ pub struct PartArrow {
 }
 
 impl PartArrow {
+    /// Return the schema without initializing a data generator.
+    pub fn schema_ref() -> SchemaRef {
+        Arc::clone(&PART_SCHEMA)
+    }
+
     pub fn new(generator: PartGenerator<'static>) -> Self {
         Self {
             inner: generator.iter(),

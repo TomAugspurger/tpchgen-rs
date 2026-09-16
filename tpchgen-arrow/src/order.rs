@@ -59,6 +59,11 @@ pub struct OrderArrow {
 }
 
 impl OrderArrow {
+    /// Return the schema without initializing a data generator.
+    pub fn schema_ref() -> SchemaRef {
+        Arc::clone(&ORDER_SCHEMA)
+    }
+
     pub fn new(generator: OrderGenerator<'static>) -> Self {
         Self {
             inner: generator.iter(),

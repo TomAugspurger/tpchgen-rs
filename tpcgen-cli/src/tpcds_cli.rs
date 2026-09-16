@@ -1,4 +1,5 @@
 //! TPC-DS data generation CLI with a dbgen compatible API.
+use crate::args::parse_row_group_bytes;
 use crate::logging::configure_logging;
 use crate::parquet::{parse_column_encoding_pair, ParquetVersion};
 #[cfg(feature = "indicatif-progress")]
@@ -25,8 +26,6 @@ mod plan;
 mod progress;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-const DEFAULT_TPCDS_PARQUET_ROW_GROUP_BYTES: usize = DEFAULT_PARQUET_ROW_GROUP_BYTES as usize;
 
 enum OutputFormat {
     Dat(dat::Dat),
@@ -97,7 +96,7 @@ struct ParquetArgs {
     #[arg(short = 'c', long, default_value = "SNAPPY")]
     compression: Compression,
 
-    /// Target size in row group bytes in Parquet files
+    /// Target row-group size in bytes
     ///
     /// Row groups are the typical unit of parallel processing and compression
     /// with many query engines. Therefore, smaller row groups enable better
@@ -111,10 +110,10 @@ struct ParquetArgs {
     /// Typical values range from 10MB to 100MB.
     #[arg(
         long,
-        default_value_t = DEFAULT_TPCDS_PARQUET_ROW_GROUP_BYTES,
+        default_value_t = DEFAULT_PARQUET_ROW_GROUP_BYTES,
         value_parser = parse_row_group_bytes
     )]
-    row_group_bytes: usize,
+    row_group_bytes: i64,
 
     /// The number of threads for parallel generation, defaults to the number of CPUs
     #[arg(
@@ -129,7 +128,7 @@ struct ParquetArgs {
     ///
     /// Format: `COLUMN=ENCODING[,COLUMN=ENCODING...]`
     ///
-    /// Example: `r_reason_description=DELTA_LENGTH_BYTE_ARRAY`
+    /// Example: `r_reason_desc=DELTA_LENGTH_BYTE_ARRAY`
     ///
     /// Supported encodings: PLAIN, RLE, DELTA_BINARY_PACKED,
     /// DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT. Each
@@ -145,14 +144,14 @@ struct ParquetArgs {
     ///
     /// Format: comma or space separated list of column names.
     ///
-    /// Example: `--uncompressed-column-overrides=r_reason_description`
+    /// Example: `--uncompressed-column-overrides=r_reason_desc`
     #[arg(short, long, num_args = 0.., value_delimiter = ',')]
     uncompressed_column_overrides: Vec<String>,
     /// Disable dictionary encoding for specific columns.
     ///
     /// Format: comma or space separated list of column names.
     ///
-    /// Example: `--disable-dictionary-encoding=r_reason_description`
+    /// Example: `--disable-dictionary-encoding=r_reason_desc`
     #[arg(long = "disable-dictionary-encoding", num_args = 0.., value_delimiter = ',')]
     disable_dictionary_encoding_columns: Vec<String>,
     /// Parquet format version to write.
@@ -270,7 +269,7 @@ impl CommonArgs {
     async fn run_parquet(
         self,
         compression: Compression,
-        row_group_bytes: usize,
+        row_group_bytes: i64,
         num_threads: usize,
         column_encoding: Option<Vec<(String, Encoding)>>,
         uncompressed_column_overrides: Vec<String>,
@@ -540,15 +539,6 @@ fn parse_delimiter(s: &str) -> std::result::Result<char, String> {
         ));
     }
     Ok(parsed)
-}
-
-fn parse_row_group_bytes(s: &str) -> std::result::Result<usize, String> {
-    let parsed = s.parse::<usize>().map_err(|e| e.to_string())?;
-    if parsed == 0 {
-        Err("must be greater than zero".to_string())
-    } else {
-        Ok(parsed)
-    }
 }
 
 #[cfg(test)]
