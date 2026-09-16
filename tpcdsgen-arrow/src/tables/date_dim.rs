@@ -1,6 +1,9 @@
-use crate::conversions::{bool_to_yn, date_to_date32, sk_opt, string_view_array_from_opt_iter};
-use crate::{RowIter, DEFAULT_BATCH_SIZE};
-use arrow::array::{Date32Array, Int32Array, Int64Array, RecordBatch, StringViewBuilder};
+use crate::conversions::{
+    bool_to_yn, date_array_from_opt_date32, date_arrow_type, date_to_date32, sk_opt,
+    string_view_array_from_opt_iter,
+};
+use crate::{ColumnTypeConfig, RowIter, DEFAULT_BATCH_SIZE};
+use arrow::array::{Int32Array, Int64Array, RecordBatch, StringViewBuilder};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatchReader;
@@ -11,6 +14,8 @@ use tpcdsgen::row::{DateDimRowGenerator, GeneratedRow};
 pub struct DateDimArrow {
     inner: RowIter<DateDimRowGenerator>,
     batch_size: usize,
+    column_type_config: ColumnTypeConfig,
+    schema: SchemaRef,
 }
 
 impl DateDimArrow {
@@ -19,6 +24,8 @@ impl DateDimArrow {
         Self {
             inner: RowIter::new(DateDimRowGenerator::new(), session, row_count),
             batch_size: DEFAULT_BATCH_SIZE,
+            column_type_config: ColumnTypeConfig::default(),
+            schema: Arc::clone(&DATE_DIM_SCHEMA),
         }
     }
     pub fn skip_rows_until_starting_row_number(&mut self, starting_row_number: i64) {
@@ -43,11 +50,21 @@ impl DateDimArrow {
         self.batch_size = batch_size;
         self
     }
+
+    pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        self.schema = if config == ColumnTypeConfig::default() {
+            Arc::clone(&DATE_DIM_SCHEMA)
+        } else {
+            make_schema(&config)
+        };
+        self.column_type_config = config;
+        self
+    }
 }
 
 impl RecordBatchReader for DateDimArrow {
     fn schema(&self) -> SchemaRef {
-        Arc::clone(&SCHEMA)
+        Arc::clone(&self.schema)
     }
 }
 
@@ -143,11 +160,14 @@ impl Iterator for DateDimArrow {
         }
 
         let batch = RecordBatch::try_new(
-            self.schema(),
+            Arc::clone(&self.schema),
             vec![
                 Arc::new(Int64Array::from(d_date_sk)),
                 Arc::new(id_b.finish()),
-                Arc::new(Date32Array::from_iter_values(d_date)),
+                date_array_from_opt_date32(
+                    d_date.into_iter().map(Some).collect(),
+                    self.column_type_config.date_type,
+                ),
                 Arc::new(Int32Array::from_iter_values(d_month_seq)),
                 Arc::new(Int32Array::from_iter_values(d_week_seq)),
                 Arc::new(Int32Array::from_iter_values(d_quarter_seq)),
@@ -195,13 +215,16 @@ impl Iterator for DateDimArrow {
     }
 }
 
-static SCHEMA: LazyLock<SchemaRef> = LazyLock::new(make_schema);
+static DATE_DIM_SCHEMA: LazyLock<SchemaRef> =
+    LazyLock::new(|| make_schema(&ColumnTypeConfig::default()));
 
-fn make_schema() -> SchemaRef {
+fn make_schema(config: &ColumnTypeConfig) -> SchemaRef {
+    let date_type = date_arrow_type(config.date_type);
+
     Arc::new(Schema::new(vec![
         Field::new("d_date_sk", DataType::Int64, true),
         Field::new("d_date_id", DataType::Utf8View, false),
-        Field::new("d_date", DataType::Date32, false),
+        Field::new("d_date", date_type, false),
         Field::new("d_month_seq", DataType::Int32, false),
         Field::new("d_week_seq", DataType::Int32, false),
         Field::new("d_quarter_seq", DataType::Int32, false),

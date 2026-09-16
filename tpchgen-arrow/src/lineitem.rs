@@ -7,7 +7,7 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatchReader;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tpchgen::generators::{LineItemGenerator, LineItemGeneratorIterator};
 
 /// Generate  [`LineItem`]s in [`RecordBatch`] format
@@ -62,13 +62,11 @@ pub struct LineItemArrow {
 
 impl LineItemArrow {
     pub fn new(generator: LineItemGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
-        let schema = make_lineitem_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
-            column_type_config,
-            schema,
+            column_type_config: ColumnTypeConfig::default(),
+            schema: Arc::clone(&LINEITEM_SCHEMA),
         }
     }
 
@@ -80,7 +78,11 @@ impl LineItemArrow {
 
     /// Set column type configuration to customize column types.
     pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
-        self.schema = make_lineitem_schema(&config);
+        self.schema = if config == ColumnTypeConfig::default() {
+            Arc::clone(&LINEITEM_SCHEMA)
+        } else {
+            make_lineitem_schema(&config)
+        };
         self.column_type_config = config;
         self
     }
@@ -211,6 +213,9 @@ impl Iterator for LineItemArrow {
         ))
     }
 }
+
+static LINEITEM_SCHEMA: LazyLock<SchemaRef> =
+    LazyLock::new(|| make_lineitem_schema(&ColumnTypeConfig::default()));
 
 fn make_lineitem_schema(config: &ColumnTypeConfig) -> SchemaRef {
     let decimal_type = match config.decimal_type {

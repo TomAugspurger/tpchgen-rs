@@ -4,7 +4,7 @@ use arrow::array::{ArrayRef, Float64Array, Int32Array, Int64Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatchReader;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tpchgen::generators::{CustomerGenerator, CustomerGeneratorIterator};
 
 /// Generate [`Customer`]s in [`RecordBatch`] format
@@ -54,13 +54,11 @@ pub struct CustomerArrow {
 
 impl CustomerArrow {
     pub fn new(generator: CustomerGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
-        let schema = make_customer_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
-            column_type_config,
-            schema,
+            column_type_config: ColumnTypeConfig::default(),
+            schema: Arc::clone(&CUSTOMER_SCHEMA),
         }
     }
 
@@ -72,7 +70,11 @@ impl CustomerArrow {
 
     /// Set column type configuration to customize column types.
     pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
-        self.schema = make_customer_schema(&config);
+        self.schema = if config == ColumnTypeConfig::default() {
+            Arc::clone(&CUSTOMER_SCHEMA)
+        } else {
+            make_customer_schema(&config)
+        };
         self.column_type_config = config;
         self
     }
@@ -138,6 +140,9 @@ impl Iterator for CustomerArrow {
         ))
     }
 }
+
+static CUSTOMER_SCHEMA: LazyLock<SchemaRef> =
+    LazyLock::new(|| make_customer_schema(&ColumnTypeConfig::default()));
 
 fn make_customer_schema(config: &ColumnTypeConfig) -> SchemaRef {
     let nationkey_type = match config.nationkey_type {

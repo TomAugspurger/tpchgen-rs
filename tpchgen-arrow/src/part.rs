@@ -4,7 +4,7 @@ use arrow::array::{ArrayRef, Float64Array, Int32Array, Int64Array, RecordBatch, 
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatchReader;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tpchgen::generators::{PartGenerator, PartGeneratorIterator};
 
 /// Generate [`Part`]s in [`RecordBatch`] format
@@ -54,13 +54,11 @@ pub struct PartArrow {
 
 impl PartArrow {
     pub fn new(generator: PartGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
-        let schema = make_part_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
-            column_type_config,
-            schema,
+            column_type_config: ColumnTypeConfig::default(),
+            schema: Arc::clone(&PART_SCHEMA),
         }
     }
 
@@ -72,7 +70,11 @@ impl PartArrow {
 
     /// Set column type configuration to customize column types.
     pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
-        self.schema = make_part_schema(&config);
+        self.schema = if config == ColumnTypeConfig::default() {
+            Arc::clone(&PART_SCHEMA)
+        } else {
+            make_part_schema(&config)
+        };
         self.column_type_config = config;
         self
     }
@@ -130,6 +132,9 @@ impl Iterator for PartArrow {
         ))
     }
 }
+
+static PART_SCHEMA: LazyLock<SchemaRef> =
+    LazyLock::new(|| make_part_schema(&ColumnTypeConfig::default()));
 
 fn make_part_schema(config: &ColumnTypeConfig) -> SchemaRef {
     let retailprice_type = match config.decimal_type {

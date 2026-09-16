@@ -206,7 +206,7 @@ where
                 writer,
                 sources,
                 num_threads,
-                crate::parquet::ParquetWriteOptions {
+                crate::parquet::WriterPropertyOptions {
                     compression: plan.parquet_compression(),
                     column_encodings,
                     uncompressed_column_overrides: plan.parquet_uncompressed_column_overrides(),
@@ -232,7 +232,7 @@ where
                 writer,
                 sources,
                 num_threads,
-                crate::parquet::ParquetWriteOptions {
+                crate::parquet::WriterPropertyOptions {
                     compression: plan.parquet_compression(),
                     column_encodings,
                     uncompressed_column_overrides: plan.parquet_uncompressed_column_overrides(),

@@ -272,17 +272,17 @@ struct ParquetArgs {
     column_encoding: Option<Vec<(String, Encoding)>>,
     /// Columns that should use UNCOMPRESSED block compression.
     ///
-    /// Format: comma-separated list of column names.
+    /// Format: comma or space separated list of column names.
     ///
     /// Example: `--uncompressed-column-overrides=l_comment,l_shipinstruct`
-    #[arg(long, value_delimiter = ',')]
+    #[arg(short, long, num_args = 0.., value_delimiter = ',')]
     uncompressed_column_overrides: Vec<String>,
     /// Disable dictionary encoding for specific columns.
     ///
-    /// Format: comma-separated list of column names.
+    /// Format: comma or space separated list of column names.
     ///
     /// Example: `--disable-dictionary-encoding=c_name,l_comment`
-    #[arg(long = "disable-dictionary-encoding", value_delimiter = ',')]
+    #[arg(long = "disable-dictionary-encoding", num_args = 0.., value_delimiter = ',')]
     disable_dictionary_encoding_columns: Vec<String>,
     /// Parquet format version to write.
     ///
@@ -296,22 +296,42 @@ struct ParquetArgs {
     /// Type to use for decimal/monetary columns.
     ///
     /// Valid values: decimal128 (default), f64
-    #[arg(long, default_value = "decimal128", value_parser = clap::value_parser!(DecimalColumnType))]
+    #[arg(
+        long,
+        default_value = "decimal128",
+        value_parser = clap::value_parser!(DecimalColumnType),
+        help_heading = "TPC-H column types"
+    )]
     decimal_column_type: DecimalColumnType,
     /// Type to use for date columns.
     ///
     /// Valid values: date32 (default), timestamp_ms
-    #[arg(long, default_value = "date32", value_parser = clap::value_parser!(DateColumnType))]
+    #[arg(
+        long,
+        default_value = "date32",
+        value_parser = clap::value_parser!(DateColumnType),
+        help_heading = "TPC-H column types"
+    )]
     date_column_type: DateColumnType,
     /// Type to use for nationkey columns.
     ///
     /// Valid values: i64 (default), i32
-    #[arg(long, default_value = "i64", value_parser = clap::value_parser!(KeyColumnType))]
+    #[arg(
+        long,
+        default_value = "i64",
+        value_parser = clap::value_parser!(KeyColumnType),
+        help_heading = "TPC-H column types"
+    )]
     nationkey_type: KeyColumnType,
     /// Type to use for regionkey columns.
     ///
     /// Valid values: i64 (default), i32
-    #[arg(long, default_value = "i64", value_parser = clap::value_parser!(KeyColumnType))]
+    #[arg(
+        long,
+        default_value = "i64",
+        value_parser = clap::value_parser!(KeyColumnType),
+        help_heading = "TPC-H column types"
+    )]
     regionkey_type: KeyColumnType,
 }
 

@@ -3,7 +3,7 @@ use arrow::array::{ArrayRef, Int32Array, Int64Array, RecordBatch, StringViewArra
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatchReader;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tpchgen::generators::{RegionGenerator, RegionGeneratorIterator};
 
 /// Generate  [`Region`]s in [`RecordBatch`] format
@@ -48,13 +48,11 @@ pub struct RegionArrow {
 
 impl RegionArrow {
     pub fn new(generator: RegionGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
-        let schema = make_region_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
-            column_type_config,
-            schema,
+            column_type_config: ColumnTypeConfig::default(),
+            schema: Arc::clone(&REGION_SCHEMA),
         }
     }
 
@@ -66,7 +64,11 @@ impl RegionArrow {
 
     /// Set column type configuration to customize column types.
     pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
-        self.schema = make_region_schema(&config);
+        self.schema = if config == ColumnTypeConfig::default() {
+            Arc::clone(&REGION_SCHEMA)
+        } else {
+            make_region_schema(&config)
+        };
         self.column_type_config = config;
         self
     }
@@ -107,6 +109,9 @@ impl Iterator for RegionArrow {
         ))
     }
 }
+
+static REGION_SCHEMA: LazyLock<SchemaRef> =
+    LazyLock::new(|| make_region_schema(&ColumnTypeConfig::default()));
 
 fn make_region_schema(config: &ColumnTypeConfig) -> SchemaRef {
     let regionkey_type = match config.regionkey_type {

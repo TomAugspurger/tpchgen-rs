@@ -3,7 +3,7 @@ use arrow::array::{ArrayRef, Int32Array, Int64Array, RecordBatch, StringViewArra
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatchReader;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tpchgen::generators::{NationGenerator, NationGeneratorIterator};
 
 /// Generate  [`Nation`]s in [`RecordBatch`] format
@@ -53,13 +53,11 @@ pub struct NationArrow {
 
 impl NationArrow {
     pub fn new(generator: NationGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
-        let schema = make_nation_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
-            column_type_config,
-            schema,
+            column_type_config: ColumnTypeConfig::default(),
+            schema: Arc::clone(&NATION_SCHEMA),
         }
     }
 
@@ -71,7 +69,11 @@ impl NationArrow {
 
     /// Set column type configuration to customize column types.
     pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
-        self.schema = make_nation_schema(&config);
+        self.schema = if config == ColumnTypeConfig::default() {
+            Arc::clone(&NATION_SCHEMA)
+        } else {
+            make_nation_schema(&config)
+        };
         self.column_type_config = config;
         self
     }
@@ -128,6 +130,9 @@ impl Iterator for NationArrow {
         ))
     }
 }
+
+static NATION_SCHEMA: LazyLock<SchemaRef> =
+    LazyLock::new(|| make_nation_schema(&ColumnTypeConfig::default()));
 
 fn make_nation_schema(config: &ColumnTypeConfig) -> SchemaRef {
     let nationkey_type = match config.nationkey_type {

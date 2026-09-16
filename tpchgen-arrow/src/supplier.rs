@@ -4,7 +4,7 @@ use arrow::array::{ArrayRef, Float64Array, Int32Array, Int64Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatchReader;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tpchgen::generators::{SupplierGenerator, SupplierGeneratorIterator};
 
 /// Generate [`Supplier`]s in [`RecordBatch`] format
@@ -41,13 +41,11 @@ pub struct SupplierArrow {
 
 impl SupplierArrow {
     pub fn new(generator: SupplierGenerator<'static>) -> Self {
-        let column_type_config = ColumnTypeConfig::default();
-        let schema = make_supplier_schema(&column_type_config);
         Self {
             inner: generator.iter(),
             batch_size: DEFAULT_BATCH_SIZE,
-            column_type_config,
-            schema,
+            column_type_config: ColumnTypeConfig::default(),
+            schema: Arc::clone(&SUPPLIER_SCHEMA),
         }
     }
 
@@ -59,7 +57,11 @@ impl SupplierArrow {
 
     /// Set column type configuration to customize column types.
     pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
-        self.schema = make_supplier_schema(&config);
+        self.schema = if config == ColumnTypeConfig::default() {
+            Arc::clone(&SUPPLIER_SCHEMA)
+        } else {
+            make_supplier_schema(&config)
+        };
         self.column_type_config = config;
         self
     }
@@ -123,6 +125,9 @@ impl Iterator for SupplierArrow {
         ))
     }
 }
+
+static SUPPLIER_SCHEMA: LazyLock<SchemaRef> =
+    LazyLock::new(|| make_supplier_schema(&ColumnTypeConfig::default()));
 
 fn make_supplier_schema(config: &ColumnTypeConfig) -> SchemaRef {
     let nationkey_type = match config.nationkey_type {

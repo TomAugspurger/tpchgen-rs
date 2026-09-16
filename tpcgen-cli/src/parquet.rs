@@ -41,9 +41,9 @@ impl ParquetVersion {
     }
 }
 
-/// Writer settings passed to [`generate_parquet`].
+/// Low-level writer settings passed to [`generate_parquet`].
 #[derive(Debug, Clone, Copy)]
-pub struct ParquetWriteOptions<'a> {
+pub struct WriterPropertyOptions<'a> {
     pub compression: Compression,
     pub column_encodings: Option<&'a [(String, Encoding)]>,
     pub uncompressed_column_overrides: &'a [String],
@@ -153,7 +153,7 @@ pub async fn generate_parquet<W, I>(
     writer: W,
     iter_iter: I,
     num_threads: usize,
-    options: ParquetWriteOptions<'_>,
+    options: WriterPropertyOptions<'_>,
     progress: ProgressHandle,
 ) -> Result<(), io::Error>
 where
@@ -371,7 +371,7 @@ mod tests {
             writer,
             vec![region_source(), region_source()].into_iter(),
             1,
-            ParquetWriteOptions {
+            WriterPropertyOptions {
                 compression: Compression::UNCOMPRESSED,
                 column_encodings: None,
                 uncompressed_column_overrides: &[],
@@ -399,7 +399,7 @@ mod tests {
             writer,
             vec![region_source()].into_iter(),
             1,
-            ParquetWriteOptions {
+            WriterPropertyOptions {
                 compression: Compression::UNCOMPRESSED,
                 column_encodings: encodings,
                 uncompressed_column_overrides: &[],
@@ -423,7 +423,7 @@ mod tests {
             writer,
             vec![region_source()].into_iter(),
             1,
-            ParquetWriteOptions {
+            WriterPropertyOptions {
                 compression: Compression::SNAPPY,
                 column_encodings: None,
                 uncompressed_column_overrides: uncompressed_columns,
@@ -447,7 +447,7 @@ mod tests {
             writer,
             vec![region_source()].into_iter(),
             1,
-            ParquetWriteOptions {
+            WriterPropertyOptions {
                 compression: Compression::SNAPPY,
                 column_encodings: None,
                 uncompressed_column_overrides: &[],
@@ -471,7 +471,7 @@ mod tests {
             writer,
             vec![region_source()].into_iter(),
             1,
-            ParquetWriteOptions {
+            WriterPropertyOptions {
                 compression: Compression::SNAPPY,
                 column_encodings: None,
                 uncompressed_column_overrides: &[],
