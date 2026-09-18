@@ -284,59 +284,55 @@ struct ParquetArgs {
     uncompressed_column_overrides: Vec<String>,
     /// Disable dictionary encoding for specific columns.
     ///
-    /// Format: comma or space separated list of column names.
+    /// Format: comma-separated list of column names
     ///
-    /// Example: `--disable-dictionary-encoding=c_name,l_comment`
+    /// Dictionary encoding is enabled by default for all columns. This option
+    /// allows you to disable it for specific columns.
+    ///
+    /// Example: --disable-dictionary-encoding=c_name,l_comment
     #[arg(long = "disable-dictionary-encoding", num_args = 0.., value_delimiter = ',')]
     disable_dictionary_encoding_columns: Vec<String>,
     /// Parquet format version to write.
     ///
     /// Version 1 (default) has broader compatibility. Version 2 uses Data Page V2
-    /// format with improved encodings. Ensure downstream tools support version 2
-    /// before enabling.
+    /// format with improved encodings like RLE_DICTIONARY. Ensure downstream
+    /// tools support version 2 before enabling.
     ///
     /// Valid values: v1 (default), v2
-    #[arg(long, default_value = "v1", value_parser = clap::value_parser!(ParquetVersion))]
+    #[arg(long, default_value = "v1")]
     parquet_version: ParquetVersion,
     /// Type to use for decimal/monetary columns.
+    ///
+    /// Controls the Arrow type for: c_acctbal, l_quantity, l_extendedprice,
+    /// l_discount, l_tax, o_totalprice, p_retailprice, ps_supplycost, s_acctbal
     ///
     /// Valid values: decimal128 (default), f64
     #[arg(
         long,
         default_value = "decimal128",
-        value_parser = clap::value_parser!(DecimalColumnType),
         help_heading = "TPC-H column types"
     )]
     decimal_column_type: DecimalColumnType,
     /// Type to use for date columns.
     ///
+    /// Controls the Arrow type for: l_shipdate, l_commitdate, l_receiptdate, o_orderdate
+    ///
     /// Valid values: date32 (default), timestamp_ms
-    #[arg(
-        long,
-        default_value = "date32",
-        value_parser = clap::value_parser!(DateColumnType),
-        help_heading = "TPC-H column types"
-    )]
+    #[arg(long, default_value = "date32", help_heading = "TPC-H column types")]
     date_column_type: DateColumnType,
     /// Type to use for nationkey columns.
     ///
+    /// Controls the Arrow type for: c_nationkey, n_nationkey, s_nationkey
+    ///
     /// Valid values: i64 (default), i32
-    #[arg(
-        long,
-        default_value = "i64",
-        value_parser = clap::value_parser!(KeyColumnType),
-        help_heading = "TPC-H column types"
-    )]
+    #[arg(long, default_value = "i64", help_heading = "TPC-H column types")]
     nationkey_type: KeyColumnType,
     /// Type to use for regionkey columns.
     ///
+    /// Controls the Arrow type for: n_regionkey, r_regionkey
+    ///
     /// Valid values: i64 (default), i32
-    #[arg(
-        long,
-        default_value = "i64",
-        value_parser = clap::value_parser!(KeyColumnType),
-        help_heading = "TPC-H column types"
-    )]
+    #[arg(long, default_value = "i64", help_heading = "TPC-H column types")]
     regionkey_type: KeyColumnType,
 }
 
