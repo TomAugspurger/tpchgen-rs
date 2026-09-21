@@ -289,6 +289,10 @@ struct ParquetArgs {
     /// Dictionary encoding is enabled by default for all columns. This option
     /// allows you to disable it for specific columns.
     ///
+    /// Columns named by --column-encoding already have their dictionary
+    /// disabled, so this flag is for columns that should skip the dictionary
+    /// while keeping the writer's default encoding.
+    ///
     /// Example: --disable-dictionary-encoding=c_name,l_comment
     #[arg(long = "disable-dictionary-encoding", num_args = 0.., value_delimiter = ',')]
     disable_dictionary_encoding_columns: Vec<String>,

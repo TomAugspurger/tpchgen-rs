@@ -72,7 +72,16 @@ DELTA_BINARY_PACKED = "DELTA_BINARY_PACKED"
 DELTA_LENGTH_BYTE_ARRAY = "DELTA_LENGTH_BYTE_ARRAY"
 PLAIN = "PLAIN"
 RLE_DICTIONARY = "RLE_DICTIONARY"
-DEFAULT_COLUMN_ENCODINGS = {
+# WRITER_DEFAULT means "pass no --column-encoding for this column": the writer
+# dictionary-encodes it, falling back to DELTA_BYTE_ARRAY/DELTA_BINARY_PACKED if
+# the dictionary overflows. Naming a real encoding also disables the column's
+# dictionary, because tpcgen-cli's --column-encoding calls
+# set_column_dictionary_enabled(path, false) so the requested encoding is used.
+# Dictionary encoding usually wins on low-cardinality columns, so name an
+# encoding only where the dictionary is not worth it.
+WRITER_DEFAULT = None
+
+COLUMN_ENCODINGS = {
   "l_comment": DELTA_LENGTH_BYTE_ARRAY,
   "ps_comment": DELTA_LENGTH_BYTE_ARRAY,
   "l_extendedprice": DELTA_BINARY_PACKED,
@@ -81,8 +90,8 @@ DEFAULT_COLUMN_ENCODINGS = {
   "l_orderkey": DELTA_BINARY_PACKED,
   "o_orderkey": DELTA_BINARY_PACKED,
   "o_totalprice": DELTA_BINARY_PACKED,
-  "o_custkey": DELTA_BINARY_PACKED,
-  "ps_supplycost": PLAIN,
+  "o_custkey": WRITER_DEFAULT,
+  "ps_supplycost": WRITER_DEFAULT,
   "c_comment": DELTA_LENGTH_BYTE_ARRAY,
   "ps_partkey": DELTA_BINARY_PACKED,
   "l_suppkey": DELTA_BINARY_PACKED,
@@ -91,49 +100,49 @@ DEFAULT_COLUMN_ENCODINGS = {
   "c_custkey": DELTA_BINARY_PACKED,
   "c_address": DELTA_LENGTH_BYTE_ARRAY,
   "c_acctbal": DELTA_BINARY_PACKED,
-  "ps_availqty": PLAIN,
-  "ps_suppkey": DELTA_BINARY_PACKED,
+  "ps_availqty": WRITER_DEFAULT,
+  "ps_suppkey": WRITER_DEFAULT,
   "p_comment": DELTA_LENGTH_BYTE_ARRAY,
-  "l_receiptdate": PLAIN,
-  "l_shipdate": PLAIN,
-  "l_commitdate": PLAIN,
+  "l_receiptdate": WRITER_DEFAULT,
+  "l_shipdate": WRITER_DEFAULT,
+  "l_commitdate": WRITER_DEFAULT,
   "c_name": DELTA_LENGTH_BYTE_ARRAY,
   "c_phone": DELTA_LENGTH_BYTE_ARRAY,
-  "l_linestatus": PLAIN,
-  "o_orderdate": PLAIN,
+  "l_linestatus": WRITER_DEFAULT,
+  "o_orderdate": WRITER_DEFAULT,
   "s_suppkey": DELTA_BINARY_PACKED,
-  "l_returnflag": PLAIN,
-  "o_clerk": PLAIN,
+  "l_returnflag": WRITER_DEFAULT,
+  "o_clerk": WRITER_DEFAULT,
   "s_address": DELTA_LENGTH_BYTE_ARRAY,
   "s_acctbal": DELTA_BINARY_PACKED,
   "s_comment": DELTA_LENGTH_BYTE_ARRAY,
   "s_name": DELTA_LENGTH_BYTE_ARRAY,
   "s_phone": DELTA_LENGTH_BYTE_ARRAY,
-  "l_quantity": PLAIN,
-  "l_shipinstruct": PLAIN,
-  "l_shipmode": PLAIN,
-  "l_discount": PLAIN,
-  "l_tax": PLAIN,
-  "o_orderstatus": PLAIN,
-  "o_orderpriority": PLAIN,
-  "o_shippriority": PLAIN,
-  "c_nationkey": PLAIN,
-  "c_mktsegment": PLAIN,
-  "p_size": PLAIN,
+  "l_quantity": WRITER_DEFAULT,
+  "l_shipinstruct": WRITER_DEFAULT,
+  "l_shipmode": WRITER_DEFAULT,
+  "l_discount": WRITER_DEFAULT,
+  "l_tax": WRITER_DEFAULT,
+  "o_orderstatus": WRITER_DEFAULT,
+  "o_orderpriority": WRITER_DEFAULT,
+  "o_shippriority": WRITER_DEFAULT,
+  "c_nationkey": WRITER_DEFAULT,
+  "c_mktsegment": WRITER_DEFAULT,
+  "p_size": WRITER_DEFAULT,
   "n_nationkey": DELTA_BINARY_PACKED,
   "n_comment": DELTA_LENGTH_BYTE_ARRAY,
-  "p_container": PLAIN,
+  "p_container": WRITER_DEFAULT,
   "n_name": DELTA_LENGTH_BYTE_ARRAY,
   "r_regionkey": DELTA_BINARY_PACKED,
   "r_comment": DELTA_LENGTH_BYTE_ARRAY,
   "r_name": DELTA_LENGTH_BYTE_ARRAY,
-  "n_regionkey": PLAIN,
-  "p_mfgr": PLAIN,
-  "s_nationkey": PLAIN,
-  "p_brand": PLAIN,
-  "p_type": PLAIN,
-  "p_retailprice": PLAIN,
-  "l_linenumber": PLAIN,
+  "n_regionkey": WRITER_DEFAULT,
+  "p_mfgr": WRITER_DEFAULT,
+  "s_nationkey": WRITER_DEFAULT,
+  "p_brand": WRITER_DEFAULT,
+  "p_type": WRITER_DEFAULT,
+  "p_retailprice": WRITER_DEFAULT,
+  "l_linenumber": WRITER_DEFAULT,
 }
 
 def column_belongs_to_table(column: str, table: str) -> bool:
@@ -154,38 +163,10 @@ def column_belongs_to_table(column: str, table: str) -> bool:
     return column.startswith(prefixes[table])
 
 
-DEFAULT_DISABLE_DICTIONARY_ENCODING_COLUMNS = [
-  "l_comment",
-  "ps_comment",
-  "l_extendedprice",
-  "l_partkey",
-  "o_comment",
-  "l_orderkey",
-  "o_orderkey",
-  "o_totalprice",
-  "c_comment",
-  "ps_partkey",
-  "l_suppkey",
-  "p_name",
-  "p_partkey",
-  "c_custkey",
-  "c_address",
-  "c_acctbal",
-  "p_comment",
-  "c_name",
-  "c_phone",
-  "s_suppkey",
-  "s_address",
-  "s_acctbal",
-  "s_comment",
-  "s_name",
-  "s_phone",
-  "n_nationkey",
-  "n_comment",
-  "n_name",
-  "r_regionkey",
-  "r_comment",
-  "r_name",
+# Naming an encoding already disables that column's dictionary, so these are
+# exactly the columns with a real encoding. Derived so the two cannot drift.
+DICTIONARY_DISABLED_COLUMNS = [
+  col for col, enc in COLUMN_ENCODINGS.items() if enc is not WRITER_DEFAULT
 ]
 
 
@@ -290,8 +271,8 @@ def generate_partition(
                 "s_acctbal",
             }
 
-            for col, encoding in DEFAULT_COLUMN_ENCODINGS.items():
-                if not column_belongs_to_table(col, table):
+            for col, encoding in COLUMN_ENCODINGS.items():
+                if encoding is WRITER_DEFAULT or not column_belongs_to_table(col, table):
                     continue
 
                 if (
@@ -309,7 +290,7 @@ def generate_partition(
         if not use_upstream_disable_dictionary_encoding:
             disable_dictionary_columns = [
                 col
-                for col in DEFAULT_DISABLE_DICTIONARY_ENCODING_COLUMNS
+                for col in DICTIONARY_DISABLED_COLUMNS
                 if column_belongs_to_table(col, table)
             ]
             if disable_dictionary_columns:
