@@ -6,6 +6,7 @@ on:
       - main
       - master
       - tom/sync-upstream-clean
+      - tom/upstream-staging
     tags:
       - 'v*'
   pull_request:
