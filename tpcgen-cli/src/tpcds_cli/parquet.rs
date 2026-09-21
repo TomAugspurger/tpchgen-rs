@@ -21,35 +21,33 @@ use tpcdsgen_arrow::{
     TimeDimArrow, WarehouseArrow, WebPageArrow, WebReturnsArrow, WebSalesArrow, WebSiteArrow,
 };
 
-/// Returns `table`'s Arrow schema. Does not generate any rows.
-fn table_schema(table: Table, session: &Session) -> SchemaRef {
-    let session = session.clone();
+fn table_schema(table: Table) -> SchemaRef {
     match table {
-        Table::CallCenter => CallCenterArrow::new(session).schema(),
-        Table::CatalogPage => CatalogPageArrow::new(session).schema(),
-        Table::CatalogReturns => CatalogReturnsArrow::new(session).schema(),
-        Table::CatalogSales => CatalogSalesArrow::new(session).schema(),
-        Table::Customer => CustomerArrow::new(session).schema(),
-        Table::CustomerAddress => CustomerAddressArrow::new(session).schema(),
-        Table::CustomerDemographics => CustomerDemographicsArrow::new(session).schema(),
-        Table::DateDim => DateDimArrow::new(session).schema(),
-        Table::DbgenVersion => DbgenVersionArrow::new(session).schema(),
-        Table::HouseholdDemographics => HouseholdDemographicsArrow::new(session).schema(),
-        Table::IncomeBand => IncomeBandArrow::new(session).schema(),
-        Table::Inventory => InventoryArrow::new(session).schema(),
-        Table::Item => ItemArrow::new(session).schema(),
-        Table::Promotion => PromotionArrow::new(session).schema(),
-        Table::Reason => ReasonArrow::new(session).schema(),
-        Table::ShipMode => ShipModeArrow::new(session).schema(),
-        Table::Store => StoreArrow::new(session).schema(),
-        Table::StoreReturns => StoreReturnsArrow::new(session).schema(),
-        Table::StoreSales => StoreSalesArrow::new(session).schema(),
-        Table::TimeDim => TimeDimArrow::new(session).schema(),
-        Table::Warehouse => WarehouseArrow::new(session).schema(),
-        Table::WebPage => WebPageArrow::new(session).schema(),
-        Table::WebReturns => WebReturnsArrow::new(session).schema(),
-        Table::WebSales => WebSalesArrow::new(session).schema(),
-        Table::WebSite => WebSiteArrow::new(session).schema(),
+        Table::CallCenter => CallCenterArrow::schema_ref(),
+        Table::CatalogPage => CatalogPageArrow::schema_ref(),
+        Table::CatalogReturns => CatalogReturnsArrow::schema_ref(),
+        Table::CatalogSales => CatalogSalesArrow::schema_ref(),
+        Table::Customer => CustomerArrow::schema_ref(),
+        Table::CustomerAddress => CustomerAddressArrow::schema_ref(),
+        Table::CustomerDemographics => CustomerDemographicsArrow::schema_ref(),
+        Table::DateDim => DateDimArrow::schema_ref(),
+        Table::DbgenVersion => DbgenVersionArrow::schema_ref(),
+        Table::HouseholdDemographics => HouseholdDemographicsArrow::schema_ref(),
+        Table::IncomeBand => IncomeBandArrow::schema_ref(),
+        Table::Inventory => InventoryArrow::schema_ref(),
+        Table::Item => ItemArrow::schema_ref(),
+        Table::Promotion => PromotionArrow::schema_ref(),
+        Table::Reason => ReasonArrow::schema_ref(),
+        Table::ShipMode => ShipModeArrow::schema_ref(),
+        Table::Store => StoreArrow::schema_ref(),
+        Table::StoreReturns => StoreReturnsArrow::schema_ref(),
+        Table::StoreSales => StoreSalesArrow::schema_ref(),
+        Table::TimeDim => TimeDimArrow::schema_ref(),
+        Table::Warehouse => WarehouseArrow::schema_ref(),
+        Table::WebPage => WebPageArrow::schema_ref(),
+        Table::WebReturns => WebReturnsArrow::schema_ref(),
+        Table::WebSales => WebSalesArrow::schema_ref(),
+        Table::WebSite => WebSiteArrow::schema_ref(),
         _ => unreachable!("table_schema is only called for main TPC-DS tables"),
     }
 }
@@ -60,14 +58,11 @@ fn table_schema(table: Table, session: &Session) -> SchemaRef {
 /// Rejects a column name that matches no table (almost always a typo). A
 /// column that matches only some tables is fine: [`column_encodings_for_table`]
 /// applies it there and skips it elsewhere.
-fn validate_column_encodings(
-    tables: &[(Table, Session)],
-    encodings: &[(String, Encoding)],
-) -> io::Result<()> {
+fn validate_column_encodings(tables: &[Table], encodings: &[(String, Encoding)]) -> io::Result<()> {
     for (col, enc) in encodings {
         crate::parquet::reject_unsupported_encoding(*enc)?;
-        let matches_any_table = tables.iter().any(|(table, session)| {
-            table_schema(*table, session)
+        let matches_any_table = tables.iter().any(|table| {
+            table_schema(*table)
                 .fields()
                 .iter()
                 .any(|f| f.name() == col)
@@ -84,10 +79,9 @@ fn validate_column_encodings(
 /// Keeps only the encodings whose column exists in `table`'s schema.
 fn column_encodings_for_table(
     table: Table,
-    session: &Session,
     encodings: &[(String, Encoding)],
 ) -> Vec<(String, Encoding)> {
-    let schema = table_schema(table, session);
+    let schema = table_schema(table);
     encodings
         .iter()
         .filter(|(col, _)| schema.fields().iter().any(|f| f.name() == col))
@@ -100,7 +94,7 @@ fn column_encodings_for_table(
 pub(super) struct Parquet {
     output_dir: PathBuf,
     compression: Compression,
-    row_group_bytes: usize,
+    row_group_bytes: i64,
     num_threads: usize,
     column_encodings: Option<Vec<(String, Encoding)>>,
 }
@@ -109,7 +103,7 @@ impl Parquet {
     pub(super) fn new(
         output_dir: PathBuf,
         compression: Compression,
-        row_group_bytes: usize,
+        row_group_bytes: i64,
         num_threads: usize,
         column_encodings: Option<Vec<(String, Encoding)>>,
     ) -> Self {
@@ -131,7 +125,7 @@ impl Parquet {
     /// are encoded, instead of waiting for one table at a time.
     pub(super) async fn generate_tables(
         &self,
-        tables: Vec<(Table, Session)>,
+        table_sessions: Vec<(Table, Session)>,
         progress: Arc<dyn ProgressTracker>,
     ) -> io::Result<()> {
         // Reject a --column-encoding column that matches no selected table
@@ -139,12 +133,14 @@ impl Parquet {
         // (below) skips a column that only matches some tables, so that
         // case is not an error.
         if let Some(encodings) = &self.column_encodings {
-            validate_column_encodings(&tables, encodings)?;
+            let selected_tables: Vec<Table> =
+                table_sessions.iter().map(|(table, _)| *table).collect();
+            validate_column_encodings(&selected_tables, encodings)?;
         }
 
         // Plan each table and pre-register the row group totals so trackers
         // can size their bars before the first increment
-        let mut work: Vec<(Table, Session, TpcdsGenerationPlan, ProgressHandle)> = tables
+        let mut work: Vec<(Table, Session, TpcdsGenerationPlan, ProgressHandle)> = table_sessions
             .into_iter()
             .map(|(table, session)| {
                 let plan =
@@ -533,7 +529,7 @@ impl Parquet {
     ) -> io::Result<()>
     where
         R: RecordBatchReader + Send + 'static,
-        F: Fn(Session, i64, i64) -> R + Send + 'static,
+        F: Fn(Session, u64, u64) -> R + Send + 'static,
     {
         let table_name = table.get_name();
         let path = self.output_dir.join(format!("{table_name}.parquet"));
@@ -543,7 +539,7 @@ impl Parquet {
         let column_encodings = self
             .column_encodings
             .as_ref()
-            .map(|encodings| column_encodings_for_table(table, &session, encodings));
+            .map(|encodings| column_encodings_for_table(table, encodings));
 
         let sources = plan
             .into_iter()
@@ -560,6 +556,9 @@ impl Parquet {
             num_threads,
             self.compression,
             column_encodings.as_deref(),
+            &[],
+            &[],
+            crate::parquet::ParquetVersion::default(),
             progress.clone(),
         )
         .await?;
@@ -578,56 +577,46 @@ impl Parquet {
 mod tests {
     use super::*;
 
-    fn table_sessions(tables: &[Table]) -> Vec<(Table, Session)> {
-        tables
-            .iter()
-            .map(|&table| (table, Session::default()))
-            .collect()
-    }
-
     #[test]
     fn validate_column_encodings_accepts_a_column_present_on_just_one_table() {
-        // r_reason_description exists only on reason, not item.
-        let tables = table_sessions(&[Table::Reason, Table::Item]);
-        let encodings = [("r_reason_description".to_string(), Encoding::PLAIN)];
+        // r_reason_desc exists only on reason, not item.
+        let tables = [Table::Reason, Table::Item];
+        let encodings = [("r_reason_desc".to_string(), Encoding::PLAIN)];
         assert!(validate_column_encodings(&tables, &encodings).is_ok());
     }
 
     #[test]
     fn validate_column_encodings_rejects_a_typo() {
-        let tables = table_sessions(&[Table::Reason]);
-        let encodings = [("r_reason_description_typo".to_string(), Encoding::PLAIN)];
+        let tables = [Table::Reason];
+        let encodings = [("r_reason_desc_typo".to_string(), Encoding::PLAIN)];
         let err = validate_column_encodings(&tables, &encodings).unwrap_err();
         assert!(
-            err.to_string()
-                .contains("column 'r_reason_description_typo'"),
+            err.to_string().contains("column 'r_reason_desc_typo'"),
             "{err}"
         );
     }
 
     #[test]
     fn validate_column_encodings_rejects_dictionary_encoding() {
-        let tables = table_sessions(&[Table::Reason]);
-        let encodings = [(
-            "r_reason_description".to_string(),
-            Encoding::PLAIN_DICTIONARY,
-        )];
-        assert!(validate_column_encodings(&tables, &encodings).is_err());
+        // The column is real, so the only reason to fail is the encoding.
+        let tables = [Table::Reason];
+        let encodings = [("r_reason_desc".to_string(), Encoding::PLAIN_DICTIONARY)];
+        let err = validate_column_encodings(&tables, &encodings).unwrap_err();
+        assert!(err.to_string().contains("dictionary encoding"), "{err}");
     }
 
     #[test]
     fn column_encodings_for_table_keeps_only_matching_columns() {
-        let session = Session::default();
         let encodings = [
-            ("r_reason_description".to_string(), Encoding::PLAIN),
+            ("r_reason_desc".to_string(), Encoding::PLAIN),
             ("i_item_desc".to_string(), Encoding::PLAIN),
         ];
         assert_eq!(
-            column_encodings_for_table(Table::Reason, &session, &encodings),
-            vec![("r_reason_description".to_string(), Encoding::PLAIN)]
+            column_encodings_for_table(Table::Reason, &encodings),
+            vec![("r_reason_desc".to_string(), Encoding::PLAIN)]
         );
         assert_eq!(
-            column_encodings_for_table(Table::CallCenter, &session, &encodings),
+            column_encodings_for_table(Table::CallCenter, &encodings),
             Vec::new()
         );
     }

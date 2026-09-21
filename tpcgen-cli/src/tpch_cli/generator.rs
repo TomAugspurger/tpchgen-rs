@@ -4,10 +4,10 @@ use super::plan::DEFAULT_PARQUET_ROW_GROUP_BYTES;
 use super::runner::PlanRunner;
 use super::statistics::WriteStatistics;
 use crate::parquet::IntoSize;
+use crate::parquet::ParquetVersion;
 use crate::progress::{no_op_progress_tracker, ProgressTracker};
 pub use ::parquet::basic::{Compression, Encoding};
 use arrow::datatypes::SchemaRef;
-use arrow::record_batch::RecordBatchReader;
 use log::info;
 use std::fmt::Display;
 use std::fs::File;
@@ -17,14 +17,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 use tpchgen::distribution::Distributions;
-use tpchgen::generators::{
-    CustomerGenerator, LineItemGenerator, NationGenerator, OrderGenerator, PartGenerator,
-    PartSuppGenerator, RegionGenerator, SupplierGenerator,
-};
 use tpchgen::text::TextPool;
 use tpchgen_arrow::{
-    CustomerArrow, LineItemArrow, NationArrow, OrderArrow, PartArrow, PartSuppArrow, RegionArrow,
-    SupplierArrow,
+    ColumnTypeConfig, CustomerArrow, LineItemArrow, NationArrow, OrderArrow, PartArrow,
+    PartSuppArrow, RegionArrow, SupplierArrow,
 };
 
 /// Wrapper around a buffer writer that counts the number of buffers and bytes written
@@ -109,17 +105,22 @@ impl FromStr for Table {
     /// not support this since it just adds unnecessary complexity and confusion so we
     /// only support the exclusive abbreviations.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "n" | "nation" => Ok(Table::Nation),
-            "r" | "region" => Ok(Table::Region),
-            "s" | "supplier" => Ok(Table::Supplier),
-            "P" | "part" => Ok(Table::Part),
-            "S" | "partsupp" => Ok(Table::Partsupp),
-            "c" | "customer" => Ok(Table::Customer),
-            "O" | "orders" => Ok(Table::Orders),
-            "L" | "lineitem" => Ok(Table::Lineitem),
-            _ => Err("Invalid table name {s}"),
+        for (alias, table) in [
+            ("n", Table::Nation),
+            ("r", Table::Region),
+            ("s", Table::Supplier),
+            ("P", Table::Part),
+            ("S", Table::Partsupp),
+            ("c", Table::Customer),
+            ("O", Table::Orders),
+            ("L", Table::Lineitem),
+        ] {
+            if s == alias || s.eq_ignore_ascii_case(table.name()) {
+                return Ok(table);
+            }
         }
+
+        Err("Invalid table name {s}")
     }
 }
 
@@ -200,6 +201,14 @@ pub struct GeneratorConfig {
     pub parquet_compression: Compression,
     /// Per-column Parquet encodings (overrides writer defaults)
     pub parquet_column_encodings: Option<Vec<(String, Encoding)>>,
+    /// Columns that should use UNCOMPRESSED block compression
+    pub parquet_uncompressed_column_overrides: Vec<String>,
+    /// Columns that should not use dictionary encoding
+    pub parquet_disable_dictionary_encoding_columns: Vec<String>,
+    /// Parquet format version to write
+    pub parquet_version: ParquetVersion,
+    /// Arrow column type configuration for Parquet output
+    pub column_type_config: ColumnTypeConfig,
     /// Target row group size in bytes for Parquet files
     pub parquet_row_group_bytes: i64,
     /// Number of partitions to generate (if None, generates a single file per table)
@@ -222,6 +231,10 @@ impl Default for GeneratorConfig {
             num_threads: num_cpus::get(),
             parquet_compression: Compression::SNAPPY,
             parquet_column_encodings: None,
+            parquet_uncompressed_column_overrides: Vec::new(),
+            parquet_disable_dictionary_encoding_columns: Vec::new(),
+            parquet_version: ParquetVersion::default(),
+            column_type_config: ColumnTypeConfig::default(),
             parquet_row_group_bytes: DEFAULT_PARQUET_ROW_GROUP_BYTES,
             parts: None,
             part: None,
@@ -231,20 +244,16 @@ impl Default for GeneratorConfig {
     }
 }
 
-/// Returns `table`'s Arrow schema. Does not generate any rows.
-///
-/// `part` and `part_count` do not change the schema, so this always asks
-/// for `(1, 1)`.
-pub(super) fn table_schema(table: Table, scale_factor: f64) -> SchemaRef {
+pub(super) fn table_schema(table: Table) -> SchemaRef {
     match table {
-        Table::Nation => NationArrow::new(NationGenerator::new(scale_factor, 1, 1)).schema(),
-        Table::Region => RegionArrow::new(RegionGenerator::new(scale_factor, 1, 1)).schema(),
-        Table::Part => PartArrow::new(PartGenerator::new(scale_factor, 1, 1)).schema(),
-        Table::Supplier => SupplierArrow::new(SupplierGenerator::new(scale_factor, 1, 1)).schema(),
-        Table::Partsupp => PartSuppArrow::new(PartSuppGenerator::new(scale_factor, 1, 1)).schema(),
-        Table::Customer => CustomerArrow::new(CustomerGenerator::new(scale_factor, 1, 1)).schema(),
-        Table::Orders => OrderArrow::new(OrderGenerator::new(scale_factor, 1, 1)).schema(),
-        Table::Lineitem => LineItemArrow::new(LineItemGenerator::new(scale_factor, 1, 1)).schema(),
+        Table::Nation => NationArrow::schema_ref(),
+        Table::Region => RegionArrow::schema_ref(),
+        Table::Part => PartArrow::schema_ref(),
+        Table::Supplier => SupplierArrow::schema_ref(),
+        Table::Partsupp => PartSuppArrow::schema_ref(),
+        Table::Customer => CustomerArrow::schema_ref(),
+        Table::Orders => OrderArrow::schema_ref(),
+        Table::Lineitem => LineItemArrow::schema_ref(),
     }
 }
 
@@ -256,13 +265,12 @@ pub(super) fn table_schema(table: Table, scale_factor: f64) -> SchemaRef {
 /// applies it there and skips it elsewhere.
 pub(super) fn validate_column_encodings(
     tables: &[Table],
-    scale_factor: f64,
     encodings: &[(String, Encoding)],
 ) -> io::Result<()> {
     for (col, enc) in encodings {
         crate::parquet::reject_unsupported_encoding(*enc)?;
         let matches_any_table = tables.iter().any(|table| {
-            table_schema(*table, scale_factor)
+            table_schema(*table)
                 .fields()
                 .iter()
                 .any(|f| f.name() == col)
@@ -279,10 +287,9 @@ pub(super) fn validate_column_encodings(
 /// Keeps only the encodings whose column exists in `table`'s schema.
 pub(super) fn column_encodings_for_table(
     table: Table,
-    scale_factor: f64,
     encodings: &[(String, Encoding)],
 ) -> Vec<(String, Encoding)> {
-    let schema = table_schema(table, scale_factor);
+    let schema = table_schema(table);
     encodings
         .iter()
         .filter(|(col, _)| schema.fields().iter().any(|f| f.name() == col))
@@ -331,23 +338,12 @@ impl TpchGenerator {
             ]
         };
 
-        // Warm up the distributions and text pool now, not on the first
-        // table. validate_column_encodings (below) builds a real generator
-        // per table to read its schema, and every generator also creates
-        // these statics. Warm up first, or the cost hides inside
-        // validation and this timing is wrong.
-        let start = Instant::now();
-        Distributions::static_default();
-        TextPool::get_or_init_default();
-        let elapsed = start.elapsed();
-        info!("Created static distributions and text pools in {elapsed:?}");
-
         // Reject a --column-encoding column that matches no selected table
         // (a typo) before any work starts. column_encodings_for_table
         // (below) skips a column that only matches some tables, so that
         // case is not an error.
         if let Some(encodings) = &config.parquet_column_encodings {
-            validate_column_encodings(&tables, config.scale_factor, encodings)?;
+            validate_column_encodings(&tables, encodings)?;
         }
 
         // Determine what files to generate
@@ -357,6 +353,11 @@ impl TpchGenerator {
             ParquetWriterOptions {
                 compression: config.parquet_compression,
                 column_encodings: config.parquet_column_encodings,
+                uncompressed_column_overrides: config.parquet_uncompressed_column_overrides,
+                disable_dictionary_encoding_columns: config
+                    .parquet_disable_dictionary_encoding_columns,
+                parquet_version: config.parquet_version,
+                column_type_config: config.column_type_config,
             },
             config.parquet_row_group_bytes,
             config.stdout,
@@ -368,6 +369,14 @@ impl TpchGenerator {
             output_plan_generator.generate_plans(table, config.part, config.parts)?;
         }
         let output_plans = output_plan_generator.build();
+
+        // Force the creation of the distributions and text pool so it doesn't
+        // get charged to the first table.
+        let start = Instant::now();
+        Distributions::static_default();
+        TextPool::get_or_init_default();
+        let elapsed = start.elapsed();
+        info!("Created static distributions and text pools in {elapsed:?}");
 
         let runner = PlanRunner::new(output_plans, config.num_threads)
             .with_progress_tracker(progress_tracker);
@@ -440,6 +449,33 @@ impl TpchGeneratorBuilder {
         encodings: Option<Vec<(String, Encoding)>>,
     ) -> Self {
         self.config.parquet_column_encodings = encodings;
+        self
+    }
+
+    /// Set columns that should use UNCOMPRESSED block compression.
+    pub fn with_parquet_uncompressed_column_overrides(mut self, columns: Vec<String>) -> Self {
+        self.config.parquet_uncompressed_column_overrides = columns;
+        self
+    }
+
+    /// Set columns that should not use dictionary encoding.
+    pub fn with_parquet_disable_dictionary_encoding_columns(
+        mut self,
+        columns: Vec<String>,
+    ) -> Self {
+        self.config.parquet_disable_dictionary_encoding_columns = columns;
+        self
+    }
+
+    /// Set the Parquet format version to write (default: v1).
+    pub fn with_parquet_version(mut self, version: ParquetVersion) -> Self {
+        self.config.parquet_version = version;
+        self
+    }
+
+    /// Set Arrow column type configuration for Parquet output.
+    pub fn with_column_type_config(mut self, config: ColumnTypeConfig) -> Self {
+        self.config.column_type_config = config;
         self
     }
 
@@ -536,14 +572,14 @@ mod tests {
         // l_comment exists only on lineitem, not orders.
         let tables = [Table::Lineitem, Table::Orders];
         let encodings = [("l_comment".to_string(), Encoding::PLAIN)];
-        assert!(validate_column_encodings(&tables, 0.001, &encodings).is_ok());
+        assert!(validate_column_encodings(&tables, &encodings).is_ok());
     }
 
     #[test]
     fn validate_column_encodings_rejects_a_typo() {
         let tables = [Table::Lineitem, Table::Orders];
         let encodings = [("l_comment_typo".to_string(), Encoding::PLAIN)];
-        let err = validate_column_encodings(&tables, 0.001, &encodings).unwrap_err();
+        let err = validate_column_encodings(&tables, &encodings).unwrap_err();
         assert!(err.to_string().contains("column 'l_comment_typo'"), "{err}");
     }
 
@@ -551,7 +587,7 @@ mod tests {
     fn validate_column_encodings_rejects_dictionary_encoding() {
         let tables = [Table::Lineitem];
         let encodings = [("l_comment".to_string(), Encoding::PLAIN_DICTIONARY)];
-        assert!(validate_column_encodings(&tables, 0.001, &encodings).is_err());
+        assert!(validate_column_encodings(&tables, &encodings).is_err());
     }
 
     #[test]
@@ -561,11 +597,11 @@ mod tests {
             ("o_comment".to_string(), Encoding::PLAIN),
         ];
         assert_eq!(
-            column_encodings_for_table(Table::Lineitem, 0.001, &encodings),
+            column_encodings_for_table(Table::Lineitem, &encodings),
             vec![("l_comment".to_string(), Encoding::PLAIN)]
         );
         assert_eq!(
-            column_encodings_for_table(Table::Nation, 0.001, &encodings),
+            column_encodings_for_table(Table::Nation, &encodings),
             Vec::new()
         );
     }

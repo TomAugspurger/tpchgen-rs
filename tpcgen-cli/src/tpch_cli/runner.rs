@@ -24,8 +24,8 @@ use tpchgen::generators::{
     PartSuppGenerator, RegionGenerator, SupplierGenerator,
 };
 use tpchgen_arrow::{
-    CustomerArrow, LineItemArrow, NationArrow, OrderArrow, PartArrow, PartSuppArrow, RegionArrow,
-    SupplierArrow,
+    ColumnTypeConfig, CustomerArrow, LineItemArrow, NationArrow, OrderArrow, PartArrow,
+    PartSuppArrow, RegionArrow, SupplierArrow,
 };
 
 /// Runs multiple [`OutputPlan`]s in parallel, managing the number of threads
@@ -196,7 +196,7 @@ where
     // Keep only the encodings for columns on this table.
     let column_encodings = plan
         .parquet_column_encodings()
-        .map(|encodings| column_encodings_for_table(plan.table(), plan.scale_factor(), encodings));
+        .map(|encodings| column_encodings_for_table(plan.table(), encodings));
     let column_encodings = column_encodings.as_deref();
 
     match plan.output_location() {
@@ -208,6 +208,9 @@ where
                 num_threads,
                 plan.parquet_compression(),
                 column_encodings,
+                plan.parquet_uncompressed_column_overrides(),
+                plan.parquet_disable_dictionary_encoding_columns(),
+                plan.parquet_version(),
                 progress,
             )
             .await
@@ -228,6 +231,9 @@ where
                 num_threads,
                 plan.parquet_compression(),
                 column_encodings,
+                plan.parquet_uncompressed_column_overrides(),
+                plan.parquet_disable_dictionary_encoding_columns(),
+                plan.parquet_version(),
                 progress,
             )
             .await?;
@@ -295,12 +301,15 @@ macro_rules! define_run {
             fn parquet_sources(
                 generation_plan: &GenerationPlan,
                 scale_factor: f64,
+                column_type_config: ColumnTypeConfig,
             ) -> impl Iterator<Item: RecordBatchReader + Send> + 'static {
                 generation_plan
                     .clone()
                     .into_iter()
                     .map(move |(part, num_parts)| $GENERATOR::new(scale_factor, part, num_parts))
-                    .map(<$PARQUET_SOURCE>::new)
+                    .map(move |gen| {
+                        <$PARQUET_SOURCE>::new(gen).with_column_type_config(column_type_config)
+                    })
             }
 
             // Dispatch to the appropriate output format
@@ -315,7 +324,11 @@ macro_rules! define_run {
                     write_file(plan, num_threads, gens, progress).await?
                 }
                 OutputFormat::Parquet => {
-                    let gens = parquet_sources(plan.generation_plan(), scale_factor);
+                    let gens = parquet_sources(
+                        plan.generation_plan(),
+                        scale_factor,
+                        plan.column_type_config(),
+                    );
                     write_parquet(plan, num_threads, gens, progress).await?
                 }
             };
