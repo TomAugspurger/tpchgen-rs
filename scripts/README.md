@@ -19,7 +19,8 @@ With docker:
 docker run -it --rm \
    --user $(id -u):$(id -g) \
    -v /output-directory-on-host:/data \
-   ghcr.io/tomaugspurger/tpchgen-rs:tom-sync-upstream-clean \
+   ghcr.io/tomaugspurger/
+   tpchgen-rs:tom-upstream-staging \
    -s 10 -o /data/scale-10
 ```
 
